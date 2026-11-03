@@ -1,0 +1,119 @@
+"""Choose this turn's plays by trying every order of playable cards and scoring the result.
+
+The simulation is deliberately simple: damage (x1.5 on Vulnerable), block against the enemies' shown
+intents (x0.75 when they are Weak), Strength added to later hits, and rough future values for debuffs,
+powers and draws. Cards whose text was not understood are left out rather than guessed at.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from .screen import Combat
+
+KILL_BONUS = 12.0
+HP_LOSS_WEIGHT = 1.4
+VULN_VALUE = 2.0  # per stack per living enemy (extra damage on later turns)
+WEAK_VALUE = 1.5
+POWER_VALUE = 7.0
+STRENGTH_VALUE = 3.0
+DRAW_VALUE = 1.5
+
+
+@dataclass(frozen=True)
+class Action:
+    card: int  # index into the hand as read
+    target: int | None  # enemy index, or None
+
+
+@dataclass
+class Plan:
+    actions: list[Action] = field(default_factory=list)
+    score: float = 0.0
+    why: str = ""
+
+
+@dataclass
+class _Foe:
+    hp: int
+    incoming: int
+    vuln: int = 0
+    weak: int = 0
+
+
+def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, powers: int, draws: int) -> tuple[float, str]:
+    dealt = sum(max(0, s.hp - f.hp) for s, f in zip(start, foes))
+    kills = sum(1 for s, f in zip(start, foes) if s.hp > 0 and f.hp <= 0)
+    incoming = sum(int(f.incoming * (0.75 if f.weak else 1.0)) for f in foes if f.hp > 0)
+    loss = max(0, incoming - block)
+    alive = [f for f in foes if f.hp > 0]
+    debuffs = sum(min(f.vuln, 3) * VULN_VALUE + min(f.weak, 3) * WEAK_VALUE for f in alive)
+    if not alive:
+        loss = 0  # the fight ends before they act
+        debuffs = 0
+    s = dealt + kills * KILL_BONUS - loss * HP_LOSS_WEIGHT + debuffs + powers * POWER_VALUE \
+        + strength * STRENGTH_VALUE + draws * DRAW_VALUE
+    why = f"deal {dealt}, kill {kills}, take {loss} of {incoming}"
+    return s, why
+
+
+def plan_turn(c: Combat) -> Plan:
+    start = [_Foe(e.hp, e.incoming) for e in c.enemies]
+    hand = c.hand
+    best = Plan(score=_score(start, start, c.block, 0, 0, 0)[0], why="end turn")
+    best.why = _score(start, start, c.block, 0, 0, 0)[1]
+    seen: set = set()
+
+    def go(used: frozenset, energy: int, foes: list[_Foe], block: int, strength: int, powers: int, draws: int,
+           actions: list[Action]):
+        nonlocal best
+        key = (tuple(sorted(hand[i].name for i in used)), energy, tuple((f.hp, f.vuln, f.weak) for f in foes),
+               block, strength)
+        if key in seen:
+            return
+        seen.add(key)
+        s, why = _score(foes, start, block, strength, powers, draws)
+        if s > best.score + 1e-9:
+            best = Plan(list(actions), s, why)
+        if all(f.hp <= 0 for f in foes):
+            return
+        tried: set = set()
+        for i, card in enumerate(hand):
+            e = card.effects
+            if i in used or e is None or not e.known or e.unplayable:
+                continue
+            cost = card.cost if card.cost is not None else 99
+            if cost > energy:
+                continue
+            targets = [j for j, f in enumerate(foes) if f.hp > 0] if e.needs_target else [None]
+            for t in targets:
+                sig = (card.name, t)
+                if sig in tried:
+                    continue  # two copies of a card at one target lead to the same states
+                tried.add(sig)
+                nf = [_Foe(f.hp, f.incoming, f.vuln, f.weak) for f in foes]
+                hit_targets = [j for j, f in enumerate(nf) if f.hp > 0] if e.all_enemies else ([t] if t is not None else [])
+                if e.damage:
+                    for j in hit_targets:
+                        per = e.damage + strength
+                        if nf[j].vuln:
+                            per = int(per * 1.5)
+                        nf[j].hp -= per * e.hits
+                for j in hit_targets:
+                    nf[j].vuln += e.vulnerable
+                    nf[j].weak += e.weak
+                go(used | {i}, energy - cost + e.energy, nf, block + e.block, strength + e.strength,
+                   powers + (1 if e.kind == "Power" else 0), draws + e.draw, actions + [Action(i, t)])
+
+    go(frozenset(), c.energy, start, c.block, 0, 0, 0, [])
+    return best
+
+
+def describe(c: Combat, p: Plan) -> str:
+    if not p.actions:
+        return f"End turn ({p.why})"
+    steps = []
+    for a in p.actions:
+        name = c.hand[a.card].name
+        steps.append(name if a.target is None else f"{name} -> enemy {a.target + 1}")
+    return " , ".join(steps) + f", end turn ({p.why})"

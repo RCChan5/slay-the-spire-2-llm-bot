@@ -1,0 +1,5 @@
+numpy
+opencv-contrib-python==4.10.*
+mss
+paddleocr==3.7.*
+# paddlepaddle-gpu 3.4 for CUDA 12.9 (install from PaddlePaddle's index; see Daivid's requirements.txt)

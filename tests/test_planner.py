@@ -1,0 +1,69 @@
+"""Planner checks on made-up combat states (run: python -m tests.test_planner)."""
+
+import sys
+
+from stsbot.cards import effects_for, parse
+from stsbot.planner import plan_turn
+from stsbot.screen import Card, Combat, Enemy
+
+passed = failed = 0
+
+
+def check(what, got, want):
+    global passed, failed
+    if got == want:
+        passed += 1
+    else:
+        failed += 1
+        print(f"FAIL {what}: got {got!r}, want {want!r}")
+
+
+def hand(*cards):
+    out = []
+    for i, (name, cost, text, kind) in enumerate(cards):
+        c = Card(name, cost, 0.3 + i * 0.08, 0.82)
+        c.effects = effects_for(name, text, kind)
+        out.append(c)
+    return out
+
+
+S = ("Strike", 1, "Deal 6 damage.", "Attack")
+D = ("Defend", 1, "Gain 5 Block.", "Skill")
+B = ("Bash", 2, "Deal 8 damage. Apply 2 Vulnerable.", "Attack")
+
+# Card text parsing.
+e = parse("Deal 5 damage 3 times.", "Attack")
+check("multi-hit", (e.damage, e.hits, e.needs_target), (5, 3, True))
+e = parse("Deal 8 damage to ALL enemies.", "Attack")
+check("all enemies", (e.damage, e.all_enemies, e.needs_target), (8, True, False))
+e = parse("Gain 8 Biock. Draw 1 card.", "Skill")
+check("block + draw with OCR slip", (e.block, e.draw), (8, 1))
+check("unreadable starter falls back", effects_for("Strike+", "", "Attack").damage, 6)
+check("curse is unplayable", parse("Unplayable.", "Curse").unplayable, True)
+
+# A lethal hit beats blocking.
+c = Combat(50, 80, 0, 1, 3, 3, hand(S, D), [Enemy(5, 40, 0.75, 0.7, 20, 1)])
+p = plan_turn(c)
+check("kill instead of block", [(a.card, a.target) for a in p.actions], [(0, 0)])
+
+# Enemy attacking hard and out of reach: block first, then attack with what is left.
+c = Combat(50, 80, 0, 2, 3, 3, hand(S, D), [Enemy(40, 40, 0.75, 0.7, 12, 1)])
+p = plan_turn(c)
+check("block a big hit", sorted(c.hand[a.card].name for a in p.actions), ["Defend", "Strike"])
+
+# Bash before Strikes so they hit the Vulnerable enemy.
+c = Combat(50, 80, 0, 3, 3, 1, hand(S, B), [Enemy(40, 40, 0.75, 0.7, 0, 1)])
+p = plan_turn(c)
+check("bash first", [c.hand[a.card].name for a in p.actions], ["Bash", "Strike"])
+
+# Two enemies: finish the one that can die.
+c = Combat(50, 80, 0, 1, 3, 2, hand(S), [Enemy(30, 30, 0.65, 0.7, 6, 1), Enemy(6, 20, 0.8, 0.7, 6, 1)])
+p = plan_turn(c)
+check("finish the weaker one", [(a.card, a.target) for a in p.actions], [(0, 1)])
+
+# No energy: end turn.
+c = Combat(50, 80, 0, 0, 3, 2, hand(S, D), [Enemy(30, 30, 0.75, 0.7, 6, 1)])
+check("no energy ends turn", plan_turn(c).actions, [])
+
+print(f"test_planner: {passed} passed, {failed} failed")
+sys.exit(1 if failed else 0)
