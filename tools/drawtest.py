@@ -1,6 +1,6 @@
 """Draw a picture on the open map once (a test), then save a screenshot.
 
-    python -m tools.drawtest [images/file.jpg]     # default: a random picture from images/
+    python -m tools.drawtest [images/file.jpg] [--low]   # default: a random picture; --low: the map's lower half
 """
 
 import sys
@@ -18,9 +18,11 @@ def main():
     win = find_game()
     user32.SetForegroundWindow(win.hwnd)
     time.sleep(0.3)
-    pic = Path(sys.argv[1]) if len(sys.argv) > 1 else pick_picture([])
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    pic = Path(args[0]) if args else pick_picture([])
+    box = (0.22, 0.6, 0.78, 0.98) if "--low" in sys.argv else None
     t = time.time()
-    n = draw_on_map(win, inputs, pic)
+    n = draw_on_map(win, inputs, pic, box=box) if box else draw_on_map(win, inputs, pic)
     inputs.move(win, 0.9, 0.5)
     time.sleep(0.5)
     cv2.imwrite("shots/drawn.png", grab(win))

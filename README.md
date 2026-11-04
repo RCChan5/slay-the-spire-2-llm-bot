@@ -103,10 +103,10 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
 
 15. **Map drawings** (`stsbot/mapdraw.py`): put pictures in **`C:\stsbot\images`** (png, jpg, webp). At
     the start of each act's map the bot picks one at random (no repeats in a run until all are used) and
-    draws it with right-button drags (the map draws on right-drag, so no room is chosen). The pen has one
-    colour, so detail comes from hatching: outlines first, then parallel lines over darker parts and
-    crossed lines over the darkest. The subject is cut out of the background first. Pictures with "flag"
-    in the file name also get the flag of Israel behind the person. About 45 seconds per picture.
+    draws it with right-button drags (the map draws on right-drag, so no room is chosen) as a plain outline
+    (the subject is cut out of the background first). Pictures with "flag" in the file name also get the
+    flag of Israel behind the person. About 35 seconds per picture. (A shaded, faster version was tried and
+    looked worse in the game; it is off.)
     `python -m stsbot.mapdraw --preview images/x.jpg` shows the strokes; `python -m tools.drawtest` draws
     once on the open map; `--no-draw` turns drawings off. The images folder is not committed to git.
 

@@ -106,13 +106,13 @@ def polyline(win: GameWindow, points: list[tuple[float, float]], step_time: floa
         return
     _check(win)
     move_px(*win.to_screen(points[0][0] * win.width, points[0][1] * win.height))
-    time.sleep(step_time)
+    time.sleep(0.02)
     _send(_mouse(down))
     for fx, fy in points[1:]:
         move_px(*win.to_screen(fx * win.width, fy * win.height))
         time.sleep(step_time)
     _send(_mouse(up))
-    time.sleep(step_time)
+    time.sleep(0.02)
 
 
 def wheel(win: GameWindow, notches: int) -> None:

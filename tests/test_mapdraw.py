@@ -21,13 +21,6 @@ def check(what, got, want):
         print(f"FAIL {what}: got {got!r}, want {want!r}")
 
 
-# Straight lines become their two ends; long jumps are split; bends are kept.
-line = np.array([[0.1, 0.1], [0.12, 0.1], [0.14, 0.1], [0.16, 0.1]], np.float32)
-check("straight run -> two points", len(md.densify(line)), 2)
-check("long jump split", len(md.densify(np.array([[0.0, 0.0], [0.3, 0.0]], np.float32))) > 2, True)
-bend = np.array([[0.1, 0.1], [0.15, 0.1], [0.15, 0.15]], np.float32)
-check("bend kept", len(md.densify(bend)), 3)
-
 # Random pick from images/ without repeats until all are used.
 with tempfile.TemporaryDirectory() as d:
     md.IMAGES = Path(d)
@@ -49,6 +42,8 @@ with tempfile.TemporaryDirectory() as d:
     cv2.imwrite(str(plain), img)
     cv2.imwrite(str(flagged), img)
     check("flag adds strokes", len(md.strokes_from_picture(flagged)) > len(md.strokes_from_picture(plain)), True)
+    check("plain outline by default (no hatching)",
+          len(md.strokes_from_picture(plain)) < len(md.strokes_from_picture(plain, detail=True)), True)
 
 print(f"test_mapdraw: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

@@ -2,8 +2,8 @@
 
 At the start of each act's map, one picture is picked at random from the images/ folder (no repeats in
 a run until every picture has been used) and drawn with right-button drags (the map draws on right-drag,
-so no room is chosen by accident). The pen has one color, so detail comes from shading by hatching:
-the outlines first, then parallel lines over darker parts and crossed lines over the darkest.
+so no room is chosen by accident). By default it is a plain outline at the original pace (the user's
+choice); detail=True adds shading by hatching, which looked worse in the game and is off.
 
 Pictures with "flag" in the file name also get the flag of Israel drawn behind the person (the user's
 request for the portrait it was made for).
@@ -87,7 +87,7 @@ def _hatch(region: np.ndarray, angle_deg: float, spacing: int, min_run: int = 8)
     return out
 
 
-def strokes_from_picture(path: Path, detail: bool = True) -> list[np.ndarray]:
+def strokes_from_picture(path: Path, detail: bool = False) -> list[np.ndarray]:
     """Strokes in fractions of the picture (the flag may reach past its left edge)."""
     color = cv2.imread(str(path))
     if color is None:
@@ -148,7 +148,7 @@ def _visible_runs(points, person) -> list[np.ndarray]:
     return out
 
 
-def flag_strokes(person: np.ndarray, detail: bool = True, x0=-0.55, x1=0.5, y0=0.02, y1=0.58) -> list[np.ndarray]:
+def flag_strokes(person: np.ndarray, detail: bool = False, x0=-0.55, x1=0.5, y0=0.02, y1=0.58) -> list[np.ndarray]:
     """The flag of Israel (outline, two stripes, Star of David) behind the person, in picture fractions.
     With detail, the blue stripes and the star's lines are filled with hatching too."""
     fh = y1 - y0
@@ -198,16 +198,12 @@ def fit_to_box(strokes: list[np.ndarray], aspect: float, box=BOX, win_aspect: fl
     return [np.stack([ox + st[:, 0] * pw, oy + st[:, 1] * ph], axis=1) for st in strokes]
 
 
-def map_strokes(path: Path, detail: bool = True) -> list[np.ndarray]:
+def map_strokes(path: Path, detail: bool = False, box=BOX) -> list[np.ndarray]:
     h, w = cv2.imread(str(path)).shape[:2]
-    return fit_to_box(strokes_from_picture(path, detail), w / h)
+    return fit_to_box(strokes_from_picture(path, detail), w / h, box)
 
 
-def draw_seconds(strokes: list[np.ndarray]) -> float:
-    return sum(len(densify(st)) for st in strokes) * FRAME + len(strokes) * 0.05
-
-
-def preview(path: Path, out: Path, detail: bool = True) -> int:
+def preview(path: Path, out: Path, detail: bool = False) -> int:
     strokes = map_strokes(path, detail)
     img = np.full((720, 1280, 3), 235, np.uint8)
     for st in strokes:
@@ -216,29 +212,16 @@ def preview(path: Path, out: Path, detail: bool = True) -> int:
     return len(strokes)
 
 
-STEP = 0.08  # longest straight jump between pointer positions; the game joins positions frame to frame
-FRAME = 0.017  # one frame at 60 fps: each position is held for a frame so the game sees it
+def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = False, box=BOX) -> int:
+    """Draw the picture with right-button drags. Returns the number of strokes drawn.
 
-
-def densify(stroke: np.ndarray, step: float = STEP) -> np.ndarray:
-    """Only the points where a stroke bends (straight runs become their two ends), with very long jumps
-    split. Each point is then held for a frame: sent faster, the game missed whole hatch lines."""
-    if len(stroke) > 2:
-        stroke = cv2.approxPolyDP(stroke.reshape(-1, 1, 2).astype(np.float32), 0.0008, False).reshape(-1, 2)
-    out = [stroke[0]]
-    for a, b in zip(stroke[:-1], stroke[1:]):
-        n = int(np.hypot(*(b - a)) / step)
-        out += [a + (b - a) * (k / (n + 1)) for k in range(1, n + 1)] + [b]
-    return np.array(out, np.float32)
-
-
-def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = True) -> int:
-    """Draw the picture with right-button drags. Returns the number of strokes drawn."""
-    strokes = [densify(st) for st in map_strokes(path, detail)]
+    The default is the plain outline at the original pace (the user's choice: the shaded, faster version
+    looked worse in the game)."""
+    strokes = map_strokes(path, detail, box)
     for st in strokes:
         if guard:
             guard()
-        inputs_mod.polyline(win, [tuple(p) for p in st], step_time=FRAME, right=True)  # the map draws on right-drag
+        inputs_mod.polyline(win, [tuple(p) for p in st], right=True)  # the map draws on right-drag
     time.sleep(0.3)
     return len(strokes)
 
