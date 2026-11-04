@@ -32,8 +32,8 @@ CURSE = offer("Bad Luck", 0, "Curse", "Unplayable.")
 
 starter = Deck.starter()
 ch = choose([PERFECTED, TAUNT, POMMEL], starter, floor=2)
-check("starter deck takes Taunt: block plus Vulnerable for 1 energy (user rule: efficient block with extras)",
-      ch.pick is not None and [PERFECTED, TAUNT, POMMEL][ch.pick].name, "Taunt")
+check("starter deck takes Pommel Strike (S in the user's tier list in context/)",
+      ch.pick is not None and [PERFECTED, TAUNT, POMMEL][ch.pick].name, "Pommel Strike")
 
 ch = choose([WEAK_BLOCK, WEAK_HIT], starter, floor=2)
 check("skips cards no better than basics", ch.pick, None)

@@ -60,6 +60,8 @@ class Run:
     hp: int = 0
     max_hp: int = 0
     gold: int = 0
+    build: str = "flexible"  # the build the LLM is going for
+    build_floor: int | None = None  # the floor it committed on (then it sticks)
     drawn_images: list = field(default_factory=list)  # pictures drawn this run (no repeats until all used)
     drawn_floors: list = field(default_factory=list)  # floors whose fresh map got a picture
 
@@ -68,6 +70,7 @@ class Run:
         RUN_FILE.write_text(json.dumps({"character": self.character, "floor": self.floor, "ascension": self.ascension,
                                         "drawn_images": self.drawn_images, "drawn_floors": self.drawn_floors,
                                         "hp": self.hp, "max_hp": self.max_hp, "gold": self.gold,
+                                        "build": self.build, "build_floor": self.build_floor,
                                         "deck": self.deck.to_json()}, indent=1), encoding="utf-8")
 
     @classmethod
@@ -78,6 +81,7 @@ class Run:
             r.drawn_images = d.get("drawn_images", [])
             r.drawn_floors = d.get("drawn_floors", [])
             r.hp, r.max_hp, r.gold = d.get("hp", 0), d.get("max_hp", 0), d.get("gold", 0)
+            r.build, r.build_floor = d.get("build", "flexible"), d.get("build_floor")
             return r
         except (OSError, ValueError, KeyError):
             return cls()
@@ -101,6 +105,7 @@ class Run:
             if bar.floor < self.floor and bar.floor <= 2:  # runs start at floor 1; a smaller misread is not a new run
                 self.deck = Deck.starter(self.character, self.ascension)
                 self.drawn_images, self.drawn_floors = [], []
+                self.build, self.build_floor = "flexible", None
                 note = f"new run (floor {bar.floor} after {self.floor}); deck reset to the starter deck"
             if bar.floor != self.floor:
                 self.floor = bar.floor
@@ -114,6 +119,7 @@ class Run:
         self.deck = Deck.starter(self.character, self.ascension)
         self.floor = 0
         self.drawn_images, self.drawn_floors = [], []
+        self.build, self.build_floor = "flexible", None
         self.save()
 
     def add(self, name: str, kind: str, text: str, cost: int | None):

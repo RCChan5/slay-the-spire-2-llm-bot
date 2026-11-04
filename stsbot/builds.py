@@ -75,8 +75,14 @@ CARD_TIER = {name: tier for tier, names in TIERS.items() for name in names}
 
 
 def tier_value(name: str) -> float | None:
+    """The card's tier as a value: from the user's tier list in context/ when it rates the card, else
+    the built-in list."""
     base = name.rstrip("+")
-    t = CARD_TIER.get(base)
+    from . import context as cx
+    t = cx.tier(base) if cx.available() else None
+    if t == "F":
+        t = "D"
+    t = t or CARD_TIER.get(base)
     if t is None:
         return None
     return TIER_VALUE[t] + (0.8 if name.endswith("+") else 0.0)

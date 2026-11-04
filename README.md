@@ -133,6 +133,23 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     resuming, number of new runs), and the images folder with Draw now on each picture and Draw random.
     Drawing stops a running bot, opens the map if needed, draws, closes the map, and starts the bot again.
 
+20. **LLM decisions** (`stsbot/brain.py`, `stsbot/llm.py`, `stsbot/context.py`): a local model in Ollama
+    (`qwen3-vl:8b-instruct`, the user's choice of a fast 8B model; answers in well under a second once
+    loaded) makes the fight and card-pick decisions, with the final say. It reads the user's game knowledge
+    in `context/`: all cards, relics and monsters, the card tier list, and the Ironclad play guide (with its
+    "Rules for the bot"). Only the entries each decision needs go into the prompt.
+    - Fights: after every play the hand is read again and the LLM gets HP, block, energy, the whole hand
+      with real card text and tiers, each enemy's intent, statuses and known moves (enemy names are read
+      by hovering each enemy once per fight), and the simulator's best orders with predicted damage taken
+      and dealt. Its rules: avoid HP loss when attacks come, spend all energy and cards unless harmful,
+      Powers and draw first, Vulnerable before attacks. An illegal answer (card not in hand, too
+      expensive) is asked again; after two, or if Ollama does not answer, the simulator plays.
+    - Card picks: it leans toward a build early, commits by floor 4-6 using the guide's build rules
+      (saved with the run, it then sticks), and skips off-build cards, watching the deck's counts of
+      damage, block, AoE, draw and scaling to fill real gaps.
+    - `--no-llm` (or the dashboard switch) uses the built-in rules instead. The built-in card values now
+      use the tier list in `context/` too.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -162,6 +179,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
 C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
 C:\SAS\.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
 C:\SAS\.venv\Scripts\python -m tests.test_handpick  # choosing cards from the hand
+C:\SAS\.venv\Scripts\python -m tests.test_brain     # the LLM layer (stand-in model); add --live for the real one
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 

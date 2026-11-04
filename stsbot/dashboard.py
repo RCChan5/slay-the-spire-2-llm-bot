@@ -27,7 +27,7 @@ DATA = ROOT / "data"
 LOGS = ROOT / "logs"
 SETTINGS = DATA / "settings.json"
 PORT = 8765
-DEFAULTS = {"draw": True, "still": 5.0, "runs": 1}
+DEFAULTS = {"draw": True, "still": 5.0, "runs": 1, "llm": True}
 
 app = FastAPI()
 _lock = threading.Lock()
@@ -78,6 +78,8 @@ def start_bot():
         args += ["--runs", str(int(s["runs"]))]
     if not s.get("draw", True):
         args.append("--no-draw")
+    if not s.get("llm", True):
+        args.append("--no-llm")
     log = open(LOGS / time.strftime("dash_%Y%m%d_%H%M%S.txt"), "w", encoding="utf-8")
     subprocess.Popen(args, cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT,
                      env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"},
@@ -140,6 +142,7 @@ class SettingsIn(BaseModel):
     draw: bool
     still: float
     runs: int | None = None
+    llm: bool = True
 
 
 class DrawIn(BaseModel):
@@ -159,6 +162,7 @@ def status():
         "hp": r.hp, "max_hp": r.max_hp, "floor": r.floor, "ascension": r.ascension, "gold": r.gold,
         "deck": [c.name for c in r.deck.cards],
         "build": deck_builds(r.deck.cards).describe(),
+        "llm_build": r.build + (f" (committed on floor {r.build_floor})" if r.build_floor else ""),
         "settings": load_settings(),
         "log": latest_log_lines(),
     }
@@ -180,7 +184,7 @@ def api_stop():
 
 @app.post("/api/settings")
 def api_settings(s: SettingsIn):
-    save_settings({"draw": s.draw, "still": max(1.0, s.still), "runs": s.runs})
+    save_settings({"draw": s.draw, "still": max(1.0, s.still), "runs": s.runs, "llm": s.llm})
     return {"ok": True, "note": "used the next time the bot starts"}
 
 

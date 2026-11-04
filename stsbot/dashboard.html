@@ -84,6 +84,7 @@
       <button id="stop">Stop</button>
     </div>
     <h2 style="margin-top:14px">Settings</h2>
+    <div class="row"><label><input type="checkbox" id="llm"> Let the LLM decide fights and card picks</label></div>
     <div class="row"><label><input type="checkbox" id="draw"> Draw a picture on each act's map</label></div>
     <div class="row"><label>Resume after the mouse is still for <input type="number" id="still" min="1" step="1"> s</label></div>
     <div class="row"><label>New runs to start <input type="number" id="runs" min="0" step="1"></label>
@@ -136,7 +137,7 @@ async function refresh() {
     document.querySelectorAll(".drawbtn, #random").forEach(b => b.disabled = !!busy);
     $("start").disabled = s.running; $("stop").disabled = !s.running;
     if (!settingsLoaded) {
-      $("draw").checked = !!s.settings.draw; $("still").value = s.settings.still; $("runs").value = s.settings.runs || 0;
+      $("draw").checked = !!s.settings.draw; $("llm").checked = s.settings.llm !== false; $("still").value = s.settings.still; $("runs").value = s.settings.runs || 0;
       settingsLoaded = true;
     }
   } catch (e) { $("msg").textContent = "dashboard: " + e.message; }
@@ -163,7 +164,7 @@ $("stop").onclick = async () => { await api("/api/stop", {}); refresh(); };
 $("random").onclick = () => draw(null);
 $("save").onclick = async () => {
   const runs = parseInt($("runs").value || "0", 10);
-  await api("/api/settings", {draw: $("draw").checked, still: parseFloat($("still").value || "5"), runs: runs > 0 ? runs : null});
+  await api("/api/settings", {llm: $("llm").checked, draw: $("draw").checked, still: parseFloat($("still").value || "5"), runs: runs > 0 ? runs : null});
   $("saved").textContent = "saved"; setTimeout(() => $("saved").textContent = "", 2000);
 };
 

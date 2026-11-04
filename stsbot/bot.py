@@ -31,6 +31,9 @@ from .mapdraw import IMAGES, draw_on_map, pick_picture
 from .mapread import boss_point, read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
+from . import context as cx
+from . import llm
+from .brain import decide_fight, decide_pick
 from .builds import deck_builds
 from .handpick import discard_pick, read_prompt, upgrade_pick
 from .deckview import DECK_ICON, clean_name, merge_pages, page_names
@@ -79,8 +82,9 @@ class Stuck(Exception):
 
 class Bot:
     def __init__(self, play: bool, max_turns: int | None = None, resume: bool = True, still_secs: float = 5.0,
-                 max_runs: int | None = None, draw: bool = True):
+                 max_runs: int | None = None, draw: bool = True, use_llm: bool = True):
         self.play = play
+        self.use_llm = use_llm and cx.available()
         self.draw = draw
         self.max_runs = max_runs
         self.runs_started = 0
@@ -98,7 +102,8 @@ class Bot:
         self.map_tries = 0
         self.synced_floor = -1
         self.last_room = ""  # the kind of room last chosen on the map (a treasure room needs its chest clicked)
-        self.pending_play: set[str] = set()  # cards the current plan still means to play this turn
+        self.pending_play: set[str] = set()
+        self.name_cache: dict = {}  # enemy names this fight  # cards the current plan still means to play this turn
         self.prompt_tries = 0
         self.statuses = StatusBook()
         self.intent_cache: dict[tuple, tuple[bool, int, int]] = {}
@@ -336,6 +341,28 @@ class Bot:
         self.potion_cache.clear()
         return True
 
+    def enemy_names(self, c: Combat) -> list[str]:
+        """Each enemy's name, read once per fight by hovering it (the name shows under its health bar)."""
+        names = []
+        for e in c.enemies:
+            key = (round(e.x, 2), e.max_hp)
+            if key not in self.name_cache and self.play:
+                self.move(*e.body_point)
+                time.sleep(0.4)
+                img = self.frame()
+                H, W = img.shape[:2]
+                x0, x1 = max(0, e.x - 0.12), min(1, e.x + 0.12)
+                lines = self.ocr.read(img[int((e.y + 0.008) * H):int((e.y + 0.06) * H), int(x0 * W):int(x1 * W)])
+                words = [l.text for l in sorted(lines, key=lambda l: l.box[0]) if re.search(r"[A-Za-z]{3}", l.text)]
+                name = " ".join(words).strip()
+                self.name_cache[key] = name if cx.monster(name) else name  # kept even if unknown: still useful
+                if name:
+                    self.say(f"  enemy: {name}" + ("" if cx.monster(name) else " (not in the monster list)"))
+            names.append(self.name_cache.get(key, ""))
+        if self.play:
+            self.move(*REST)
+        return names
+
     # ---------- combat
     def combat_step(self, img, lines, W, H) -> bool:
         """One decision in combat. Returns True if the bot acted (so the screen will change)."""
@@ -362,9 +389,10 @@ class Bot:
         if self.play and c.hand:
             self.move(*REST)
             time.sleep(0.2)
-        plan = plan_turn(c)
+        options: list = []
+        plan = plan_turn(c, options)
         self.say(c.summary())
-        self.say("  plan: " + describe(c, plan))
+        self.say("  simulator: " + describe(c, plan))
         unknown = [x.name for x in c.hand if x.effects and not x.effects.known]
         if unknown:
             self.say(f"  not understood (left out): {', '.join(sorted(set(unknown)))}")
@@ -375,8 +403,18 @@ class Bot:
         if self.potion_step(img, c, plan):
             return True
         self.pending_play = {c.hand[a.card].name for a in plan.actions[1:]}
-        if plan.actions:
-            a = plan.actions[0]
+        first = plan.actions[0] if plan.actions else None
+        if self.use_llm:
+            names = self.enemy_names(c)
+            ch = decide_fight(c, options, names, [], plan)
+            first = ch.action
+            what = "end turn" if first is None else (c.hand[first.card].name + (
+                f" -> enemy {first.target + 1}" if first.target is not None else ""))
+            self.say(f"  {ch.source}: {what} ({ch.reason}) [{llm.last['seconds']:.1f}s]")
+            self.log(kind="llm_fight", choice=what, reason=ch.reason, source=ch.source,
+                     seconds=round(llm.last["seconds"], 2), error=llm.last["error"])
+        if first is not None:
+            a = first
             card = c.hand[a.card]
             drops = c.enemies[a.target].drop_points if a.target is not None else [(0.5, 0.42), (0.5, 0.3)]
             for i, target in enumerate(drops):
@@ -443,6 +481,20 @@ class Bot:
                 o.text = join_text(body, H)
         can_skip = any(l.text.strip().lower() == "skip" for l in lines)
         ch = choose(offers, self.state.deck, self.state.floor, can_skip)
+        if self.use_llm:
+            st = self.state
+            lc = decide_pick(offers, st.deck, st.floor, st.build, st.build_floor, can_skip, st.hp or 1,
+                             st.max_hp or 1, ch.pick)
+            if lc.build != st.build:
+                if lc.build != "flexible" and st.floor >= 4 and not st.build_floor:
+                    st.build_floor = st.floor  # committed: it sticks for the rest of the run
+                self.say(f"  build: {st.build} -> {lc.build}" + (" (committed)" if st.build_floor else ""))
+                st.build = lc.build
+                st.save()
+            ch.pick = lc.pick
+            ch.why = f"{lc.source}: " + ("skip" if lc.pick is None else f"take {offers[lc.pick].name}") + f" ({lc.reason})"
+            self.log(kind="llm_pick", pick=None if lc.pick is None else offers[lc.pick].name, build=st.build,
+                     committed_at=st.build_floor, reason=lc.reason, source=lc.source)
         for o, (v, why) in zip(offers, ch.values):
             self.say(f"  {o.name} ({o.cost}) {v}: {o.text}" + (f"  [{'; '.join(why)}]" if why else ""))
         self.say("  " + ch.why)
@@ -926,6 +978,8 @@ class Bot:
         self.prompt_tries = 0
         if kind != "map":
             self.map_tries = 0
+        if kind not in ("combat", "enemy_turn", "unknown"):
+            self.name_cache.clear()  # out of the fight: the next fight's enemies are read fresh
         if note and note != self.last_note:
             self.say("note: " + note)
             self.log(kind="note", note=note)
@@ -1075,9 +1129,10 @@ def main(argv=None):
     ap.add_argument("--still", type=float, default=5.0, help="seconds of a still mouse before resuming")
     ap.add_argument("--runs", type=int, default=None, help="start at most this many new runs (default: keep going)")
     ap.add_argument("--no-draw", action="store_true", help="do not draw a picture from images/ on each act's map")
+    ap.add_argument("--no-llm", action="store_true", help="use the built-in rules instead of the local LLM")
     args = ap.parse_args(argv)
     lock = single_instance()
     if lock is None:
         sys.exit("Another stsbot is already running. Stop it first: python -m tools.stop")
     Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still,
-        max_runs=args.runs, draw=not args.no_draw).run()
+        max_runs=args.runs, draw=not args.no_draw, use_llm=not args.no_llm).run()

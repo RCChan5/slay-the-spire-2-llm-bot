@@ -65,7 +65,9 @@ def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, power
     return s, why
 
 
-def plan_turn(c: Combat) -> Plan:
+def plan_turn(c: Combat, options: list | None = None) -> Plan:
+    """The best plan. If options is a list, it is filled with the best plan for each different first
+    play (for the LLM to choose from), best first."""
     start = [_Foe(e.hp, e.incoming, e.statuses.get("Vulnerable", 0), 0, e.block) for e in c.enemies]
     from .handpick import BAD_CARDS
     bad_in_hand = sum(1 for card in c.hand if card.name.rstrip("+") in BAD_CARDS
@@ -76,6 +78,7 @@ def plan_turn(c: Combat) -> Plan:
         if m:
             self_damage += int(m.group(1))
     hand = c.hand
+    by_first: dict = {}
     best = Plan(score=_score(start, start, c.block, 0, 0, 0, self_damage)[0], why="end turn", block_after=c.block)
     best.why = _score(start, start, c.block, 0, 0, 0, self_damage)[1]
     seen: set = set()
@@ -95,6 +98,10 @@ def plan_turn(c: Combat) -> Plan:
         s += CLEAR_BAD_VALUE * min(bad_in_hand, sum(e.clears_hand for e in played))
         if s > best.score + 1e-9:
             best = Plan(list(actions), s, why, block)
+        if options is not None and actions:
+            first = (hand[actions[0].card].name, actions[0].target)
+            if first not in by_first or s > by_first[first].score:
+                by_first[first] = Plan(list(actions), s, why, block)
         if all(f.hp <= 0 for f in foes):
             return
         tried: set = set()
@@ -129,6 +136,9 @@ def plan_turn(c: Combat) -> Plan:
                    powers + (1 if e.kind == "Power" else 0), draws + e.draw, actions + [Action(i, t)])
 
     go(frozenset(), c.energy, start, c.block, 0, 0, 0, [])
+    if options is not None:
+        options.extend(sorted(by_first.values(), key=lambda p: -p.score))
+        options.append(Plan([], _score(start, start, c.block, 0, 0, 0, self_damage)[0], "end turn now", c.block))
     return best
 
 
