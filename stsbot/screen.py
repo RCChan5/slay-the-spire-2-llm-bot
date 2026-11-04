@@ -187,6 +187,16 @@ def read_combat(lines: list[Line], W: int, H: int) -> Combat | None:
     assign_intents(enemies, digits)
 
     # Cards: each name with the cost gem just left of it and a little higher.
+    # A two-word name can come back as two words side by side ("Battle", "Trance"): join them.
+    names.sort(key=lambda n: n[1])
+    joined: list[tuple[str, float, float]] = []
+    for name, fx, fy in names:
+        if joined and fx - joined[-1][1] < 0.045 and abs(fy - joined[-1][2]) < 0.02:
+            pn, px, py = joined[-1]
+            joined[-1] = (f"{pn} {name}", (px + fx) / 2, (py + fy) / 2)
+        else:
+            joined.append((name, fx, fy))
+    names = joined
     hand: list[Card] = []
     for name, fx, fy in sorted(names, key=lambda n: n[1]):
         cost = None

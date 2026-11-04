@@ -51,6 +51,12 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
    need a stronger deck), A10 two Act 3 bosses (HP matters more late in Act 3). The ascension number is
    read from the character badge on the top bar.
 
+10. **Potions** (`stsbot/potions.py`): the belt is read from the top bar (three slots, two from A4) and
+    each potion's tooltip gives its name and effect. Rule: **keep one slot open**. When every slot is full,
+    the potion that helps most in this fight is used, so the next potion reward has room. In an emergency
+    (the coming attacks would kill even after the best plays) whatever helps is used, full belt or not.
+    Potions it cannot judge (for example ones that open a card choice) are never used automatically.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -62,7 +68,9 @@ C:\SAS\.venv\Scripts\python -m stsbot --play           # plays combat itself
 C:\SAS\.venv\Scripts\python -m stsbot --play --turns 3 # stops after 3 turns
 ```
 
-Play mode stops by itself when you move the mouse, when the game is not the window in front, or on Ctrl+C.
+Moving the mouse or switching away from the game **pauses** play mode; it resumes once the game is in front
+and the mouse has been still for 5 seconds (`--still 8` to change, `--no-resume` to stop for good instead).
+Ctrl+C quits.
 Daivid's gaming mode pauses Daivid while the game is in front; that is expected.
 
 Every decision is logged to `logs/YYYYMMDD.jsonl` (state, plan, score, card texts read).
@@ -73,6 +81,7 @@ Every decision is logged to `logs/YYYYMMDD.jsonl` (state, plan, score, card text
 C:\SAS\.venv\Scripts\python -m tests.test_planner   # made-up states, no game needed
 C:\SAS\.venv\Scripts\python -m tests.test_draft     # card reward choices, no game needed
 C:\SAS\.venv\Scripts\python -m tests.test_route     # route choices (made-up maps + saved map shots)
+C:\SAS\.venv\Scripts\python -m tests.test_potions   # potion rules
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 

@@ -31,6 +31,7 @@ class Plan:
     actions: list[Action] = field(default_factory=list)
     score: float = 0.0
     why: str = ""
+    block_after: int = 0  # block once the plan is played (for the potion emergency check)
 
 
 @dataclass
@@ -61,7 +62,7 @@ def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, power
 def plan_turn(c: Combat) -> Plan:
     start = [_Foe(e.hp, e.incoming, e.statuses.get("Vulnerable", 0), 0, e.block) for e in c.enemies]
     hand = c.hand
-    best = Plan(score=_score(start, start, c.block, 0, 0, 0)[0], why="end turn")
+    best = Plan(score=_score(start, start, c.block, 0, 0, 0)[0], why="end turn", block_after=c.block)
     best.why = _score(start, start, c.block, 0, 0, 0)[1]
     seen: set = set()
 
@@ -75,7 +76,7 @@ def plan_turn(c: Combat) -> Plan:
         seen.add(key)
         s, why = _score(foes, start, block, strength, powers, draws)
         if s > best.score + 1e-9:
-            best = Plan(list(actions), s, why)
+            best = Plan(list(actions), s, why, block)
         if all(f.hp <= 0 for f in foes):
             return
         tried: set = set()

@@ -73,11 +73,18 @@ def parse(text: str, kind: str = "") -> Effects:
     return e
 
 
-def effects_for(name: str, text: str, kind: str) -> Effects:
-    """Effects from the read text, falling back to the starter list when the read gave nothing usable."""
+def effects_for(name: str, text: str, kind: str, known_text: dict[str, tuple[str, str]] | None = None) -> Effects:
+    """Effects from the read text. When the read gave nothing usable, the text saved when the card was
+    picked (known_text: name -> (kind, text)) is used, then the starter list."""
     e = parse(text, kind)
     if e.known:
         return e
+    if known_text and name in known_text:
+        k, t = known_text[name]
+        saved = parse(t, k)
+        if saved.known:
+            saved.notes.append("text from the tracked deck")
+            return saved
     base = name.rstrip("+")
     if base in KNOWN_TEXT:
         k, t = KNOWN_TEXT[base]

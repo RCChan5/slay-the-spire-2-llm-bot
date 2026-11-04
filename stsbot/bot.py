@@ -29,6 +29,7 @@ from .ocr import Ocr
 from .draft import choose
 from .mapread import read_map
 from .planner import describe, plan_turn
+from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .route import RunInfo, choose_room
 from .run import Run, read_top_bar
 from .screen import (DIGITS, FRAC, Card, Combat, assign_intents, join_text, parse_intent_tooltip,
@@ -49,9 +50,15 @@ class UserTookOver(Exception):
     pass
 
 
+class Stuck(Exception):
+    """Something the bot cannot get past by itself; it stops so the user can look."""
+
+
 class Bot:
-    def __init__(self, play: bool, max_turns: int | None = None):
+    def __init__(self, play: bool, max_turns: int | None = None, resume: bool = True, still_secs: float = 5.0):
         self.play = play
+        self.resume = resume
+        self.still_secs = still_secs
         self.max_turns = max_turns
         self.ocr = Ocr()
         self.win: GameWindow | None = None
@@ -64,7 +71,8 @@ class Bot:
         self.map_tries = 0
         self.statuses = StatusBook()
         self.intent_cache: dict[tuple, tuple[bool, int, int]] = {}
-        self.blocked: set[tuple[int, str]] = set()  # (turn, card) the game would not let it play
+        self.blocked: set[tuple[int, str]] = set()
+        self.potion_cache: dict[tuple, object] = {}  # (turn, slot) -> Potion  # (turn, card) the game would not let it play
         LOGS.mkdir(exist_ok=True)
         self.log_path = LOGS / time.strftime("%Y%m%d.jsonl")
 
@@ -87,9 +95,31 @@ class Bot:
         if self.last_pointer is not None:
             x, y = self.pointer()
             if abs(x - self.last_pointer[0]) > 25 or abs(y - self.last_pointer[1]) > 25:
-                raise UserTookOver("mouse moved by hand")
+                self.log(kind="stop", reason="pointer moved", left_at=self.last_pointer, now=(x, y))
+                raise UserTookOver(f"mouse moved by hand (left at {self.last_pointer}, now at {(x, y)})")
         if not is_foreground(self.win):
             raise UserTookOver("game is not the window in front")
+
+    def wait_until_free(self, why: str):
+        """Paused because the user took the mouse: carry on once the game is in front and the mouse has
+        been still for a few seconds."""
+        self.say(f"paused: {why}. Resumes when the game is in front and the mouse is still for "
+                 f"{self.still_secs:.0f} s (Ctrl+C to quit)")
+        self.log(kind="pause", reason=why)
+        last, still_since = self.pointer(), time.time()
+        while True:
+            time.sleep(0.25)
+            now = self.pointer()
+            if abs(now[0] - last[0]) > 3 or abs(now[1] - last[1]) > 3 or not is_foreground(self.win):
+                last, still_since = now, time.time()
+                continue
+            if time.time() - still_since >= self.still_secs:
+                break
+        self.remember_pointer()
+        self.text_cache.clear()  # the user may have played cards meanwhile
+        self.intent_cache.clear()
+        self.say("resumed")
+        self.log(kind="resume")
 
     def remember_pointer(self):
         self.last_pointer = self.pointer()
@@ -228,6 +258,53 @@ class Bot:
             return True
         return after.energy != before.energy or len(after.hand) < len(before.hand) or             [e.hp for e in after.enemies] != [e.hp for e in before.enemies]
 
+    def potion_step(self, img, c: Combat, plan) -> bool:
+        """Use a potion when the belt is full (keep one slot open) or to survive. True if one was used."""
+        filled = filled_slots(img, self.state.ascension)
+        if not filled:
+            return False
+        slots = slot_count(self.state.ascension)
+        incoming = sum(e.incoming for e in c.enemies if e.hp > 0)
+        if len(filled) < slots and max(0, incoming - plan.block_after) < c.hp:
+            return False  # room on the belt and no danger: keep them
+        potions = []
+        for i in filled:
+            key = (c.turn, i)
+            if key not in self.potion_cache:
+                from .potions import SLOT_X, SLOT_Y
+                text = self.tooltip(SLOT_X[i], SLOT_Y, (SLOT_X[i] - 0.03, SLOT_X[i] + 0.32, 0.07, 0.26))
+                self.potion_cache[key] = from_tooltip(i, text)
+            potions.append(self.potion_cache[key])
+        self.move(*REST)
+        ch = choose_potion(potions, slots, incoming, plan.block_after, c.hp, c.max_hp, [e.hp for e in c.enemies])
+        if ch.why:
+            self.say("  potion: " + ch.why)
+        if ch.potion is None:
+            return False
+        self.log(kind="potion", potion=ch.potion.name, text=ch.potion.text, why=ch.why)
+        self.guard()
+        inputs.click(self.win, ch.potion.x, 0.0356)
+        self.remember_pointer()
+        time.sleep(0.5)
+        self.guard()
+        inputs.click(self.win, *ch.potion.use_point)
+        self.remember_pointer()
+        time.sleep(0.5)
+        if ch.target is not None:
+            self.guard()
+            inputs.click(self.win, *c.enemies[ch.target].body_point)
+            self.remember_pointer()
+        self.move(*REST)
+        time.sleep(0.8)
+        after = filled_slots(self.frame(), self.state.ascension)
+        if ch.potion.slot in after:
+            inputs.key(self.win, "esc")  # the menu or aiming is still open: back out
+            self.say("  the potion was not used (menu closed); playing cards instead")
+            self.potion_cache.clear()
+            return False
+        self.potion_cache.clear()
+        return True
+
     # ---------- combat
     def combat_step(self, img, lines, W, H) -> bool:
         """One decision in combat. Returns True if the bot acted (so the screen will change)."""
@@ -242,9 +319,13 @@ class Bot:
                 if match:
                     card.name = match[0]
         self.enrich(img, c)
+        saved = {d.name: (d.kind, d.text) for d in self.state.deck.cards}
+        costs = {d.name: d.cost for d in self.state.deck.cards if d.cost is not None}
         for card in c.hand:
             kind, text = self.card_text(c, card)
-            card.effects = effects_for(card.name, text, kind)
+            card.effects = effects_for(card.name, text, kind, saved)
+            if card.cost is None and card.name in costs:
+                card.cost = costs[card.name]
             if (c.turn, card.name) in self.blocked:
                 card.effects.unplayable = True
         if self.play and c.hand:
@@ -260,6 +341,8 @@ class Bot:
                  cards={x.name: x.effects.text for x in c.hand if x.effects}, play=self.play)
         if not self.play:
             return False
+        if self.potion_step(img, c, plan):
+            return True
         if plan.actions:
             a = plan.actions[0]
             card = c.hand[a.card]
@@ -366,7 +449,7 @@ class Bot:
             return False
         if self.map_tries >= 3:
             self.say("  clicked the map 3 times without leaving it; stopping so you can look")
-            raise UserTookOver("map click had no effect")
+            raise Stuck("map click had no effect")
         r = m.rooms[ch.room]
         self.guard()
         inputs.click(self.win, r.x, r.y)
@@ -386,91 +469,104 @@ class Bot:
             user32.SetForegroundWindow(self.win.hwnd)
             time.sleep(0.3)
             self.move(*REST)
-        last_summary = None
-        idle_since = time.time()
+        self.last_summary = None
+        self.idle_since = time.time()
         try:
             while True:
-                if self.max_turns is not None and self.turns_played >= self.max_turns:
-                    self.say(f"played {self.turns_played} turn(s); stopping as asked")
-                    return
-                if self.play:
-                    self.guard()
-                img = self.settled_frame()
-                lines, W, H = self.read(img)
-                kind = screen_kind(lines, W, H)
-                bar = read_top_bar(lines, W, H)
-                if bar.floor is None:  # the floor number is small: read it again larger
-                    got = [t for t, fx, fy in self.crop_read(img, 0.42, 0.47, 0.0, 0.065, 2.0) if DIGITS.match(t)]
-                    bar.floor = int(got[0]) if got else None
-                note = self.state.see(bar)
-                if kind != "map":
-                    self.map_tries = 0
-                if note and note != self.last_note:
-                    self.say("note: " + note)
-                    self.log(kind="note", note=note)
-                    self.last_note = note
-                if kind in ("loot", "card_choice"):
-                    # OCR of the same screen varies a little between frames; compare what matters only.
-                    if kind == "card_choice":
-                        sig = kind + "|" + "|".join(o.name for o in read_card_choice(lines, W, H))
-                    else:
-                        sig = kind + "|" + "|".join(sorted(l.text for l in lines if 0.33 < l.center[1] / H < 0.68
-                                                           and 0.4 < l.center[0] / W < 0.62))
-                    if self.play or sig != last_summary:
-                        last_summary = sig
-                        step = self.loot_step(lines, W, H) if kind == "loot" else self.card_choice_step(img, lines, W, H)
-                        if step:
-                            idle_since = time.time()
-                    time.sleep(0.4)
-                    continue
-                if kind == "combat":
-                    if self.play:
-                        self.combat_step(img, lines, W, H)
-                        idle_since = time.time()
-                    else:
-                        c = read_combat(lines, W, H)
-                        s = c.summary() if c else None
-                        if s and s != last_summary:
-                            last_summary = s
-                            self.combat_step(img, lines, W, H)
-                        time.sleep(0.5)
-                    continue
-                if kind == "map":
-                    sig = f"map|{self.state.floor}|{self.state.hp}"
-                    if self.play or sig != last_summary:
-                        last_summary = sig
-                        if self.map_step(img, lines, W, H):
-                            idle_since = time.time()
-                    time.sleep(0.5)
-                    continue
-                if kind == "proceed" and self.play:
-                    btn = next((l for l in lines if l.text.strip().lower() == "proceed"), None)
-                    if btn is not None:
-                        self.say("proceed")
-                        self.guard()
-                        inputs.click(self.win, btn.center[0] / W, btn.center[1] / H)
-                        self.remember_pointer()
-                        self.move(*REST)
-                        time.sleep(1.0)
-                        continue
-                if kind != last_summary:
-                    self.say(f"screen: {kind}" + ("" if kind in ("enemy_turn",) else " (not handled yet; waiting)"))
-                    last_summary = kind
-                if self.play and kind not in ("enemy_turn", "unknown") and time.time() - idle_since > 20:
-                    self.say("combat is over or this screen needs you; stopping")
-                    return
-                time.sleep(0.6)
-        except UserTookOver as e:
-            self.say(f"stopped: {e}")
-        except inputs.NotInFront as e:
+                try:
+                    if self.step():
+                        return
+                except (UserTookOver, inputs.NotInFront) as e:
+                    if not (self.play and self.resume):
+                        raise
+                    self.wait_until_free(str(e))
+                    self.idle_since = time.time()
+        except (Stuck, UserTookOver, inputs.NotInFront) as e:
             self.say(f"stopped: {e}")
         except KeyboardInterrupt:
             self.say("stopped (Ctrl+C)")
+
+    def step(self) -> bool:
+        """One look at the screen and at most one action. Returns True when the bot should stop."""
+        if self.max_turns is not None and self.turns_played >= self.max_turns:
+            self.say(f"played {self.turns_played} turn(s); stopping as asked")
+            return True
+        if self.play:
+            self.guard()
+        img = self.settled_frame()
+        lines, W, H = self.read(img)
+        kind = screen_kind(lines, W, H)
+        bar = read_top_bar(lines, W, H)
+        if bar.floor is None:  # the floor number is small: read it again larger
+            got = [t for t, fx, fy in self.crop_read(img, 0.42, 0.47, 0.0, 0.065, 2.0) if DIGITS.match(t)]
+            bar.floor = int(got[0]) if got else None
+        note = self.state.see(bar)
+        if kind != "map":
+            self.map_tries = 0
+        if note and note != self.last_note:
+            self.say("note: " + note)
+            self.log(kind="note", note=note)
+            self.last_note = note
+        if kind in ("loot", "card_choice"):
+            # OCR of the same screen varies a little between frames; compare what matters only.
+            if kind == "card_choice":
+                sig = kind + "|" + "|".join(o.name for o in read_card_choice(lines, W, H))
+            else:
+                sig = kind + "|" + "|".join(sorted(l.text for l in lines if 0.33 < l.center[1] / H < 0.68
+                                                   and 0.4 < l.center[0] / W < 0.62))
+            if self.play or sig != self.last_summary:
+                self.last_summary = sig
+                step = self.loot_step(lines, W, H) if kind == "loot" else self.card_choice_step(img, lines, W, H)
+                if step:
+                    self.idle_since = time.time()
+            time.sleep(0.4)
+            return False
+        if kind == "combat":
+            if self.play:
+                self.combat_step(img, lines, W, H)
+                self.idle_since = time.time()
+            else:
+                c = read_combat(lines, W, H)
+                s = c.summary() if c else None
+                if s and s != self.last_summary:
+                    self.last_summary = s
+                    self.combat_step(img, lines, W, H)
+                time.sleep(0.5)
+            return False
+        if kind == "map":
+            sig = f"map|{self.state.floor}|{self.state.hp}"
+            if self.play or sig != self.last_summary:
+                self.last_summary = sig
+                if self.map_step(img, lines, W, H):
+                    self.idle_since = time.time()
+            time.sleep(0.5)
+            return False
+        if kind == "proceed" and self.play:
+            btn = next((l for l in lines if l.text.strip().lower() == "proceed"), None)
+            if btn is not None:
+                self.say("proceed")
+                self.guard()
+                inputs.click(self.win, btn.center[0] / W, btn.center[1] / H)
+                self.remember_pointer()
+                self.move(*REST)
+                time.sleep(1.0)
+                return False
+        if kind != self.last_summary:
+            self.say(f"screen: {kind}" + ("" if kind in ("enemy_turn",) else " (not handled yet; waiting)"))
+            self.last_summary = kind
+        if self.play and kind not in ("enemy_turn", "unknown") and time.time() - self.idle_since > 20:
+            self.say("this screen needs you; stopping")
+            return True
+        time.sleep(0.6)
+        return False
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="stsbot", description="Slay the Spire 2 bot (screen pixels + OCR)")
     ap.add_argument("--play", action="store_true", help="play combat and rewards (default: advise only)")
     ap.add_argument("--turns", type=int, default=None, help="stop after this many turns")
+    ap.add_argument("--no-resume", action="store_true",
+                    help="stop for good when you move the mouse (default: pause, resume once it is still)")
+    ap.add_argument("--still", type=float, default=5.0, help="seconds of a still mouse before resuming")
     args = ap.parse_args(argv)
-    Bot(play=args.play, max_turns=args.turns).run()
+    Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still).run()
