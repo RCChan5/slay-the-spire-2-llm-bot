@@ -165,6 +165,16 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     appeared and stopped moving instead of a fixed pause. Every card play logs `time: read, details, think,
     play` so the gain can be checked. Shrinking the screen before reading was measured and left out: it
     saves 0.1 s but loses card costs, block and intent numbers.
+22. **Learning from each run** (`stsbot/review.py`): when a run ends (death or win) the bot turns the run's
+    log into a short story (each fight with its enemies, HP lost each enemy turn against what the plan
+    predicted, the death, card picks and skips with reasons, the build, campfires, events) and the local LLM
+    reviews it: what happened, mistakes, what worked, lessons. They are added to
+    `context/what_i_learned.md`, and a second call keeps the top 10 rules in `context/learned_rules.md`,
+    which go into every fight and card-pick prompt. Lessons and rules must fit the play guide's strategy
+    (commit to a build, skip what does not serve it). It takes about 5 to 10 seconds, once per run (a restart
+    on the game-over screen does not review again). `python -m stsbot.review` reviews the last run by hand;
+    `--story` only prints the story. The dashboard shows the rules and the latest review. Both files are
+    written by the bot and kept out of git; edit or delete them freely.
 
 ## Run
 
@@ -199,6 +209,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
 C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
 C:\SAS\.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
 C:\SAS\.venv\Scripts\python -m tests.test_handpick  # choosing cards from the hand
+C:\SAS\.venv\Scripts\python -m tests.test_review    # run review (stand-in model); --live for the real one
 C:\SAS\.venv\Scripts\python -m tests.test_speed     # hover wait, unnamed icons
 C:\SAS\.venv\Scripts\python -m tests.test_brain     # the LLM layer (stand-in model); add --live for the real one
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)

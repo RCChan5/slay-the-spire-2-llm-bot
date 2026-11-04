@@ -34,6 +34,7 @@ from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from . import context as cx
 from . import llm
+from .review import review_last_run
 from .brain import FightChoice, decide_fight, decide_pick, next_queued
 from .builds import deck_builds
 from .handpick import discard_pick, read_prompt, upgrade_pick
@@ -457,7 +458,7 @@ class Bot:
         unknown = [x.name for x in c.hand if x.effects and not x.effects.known]
         if unknown:
             self.say(f"  not understood (left out): {', '.join(sorted(set(unknown)))}")
-        self.log(kind="combat", state=c.summary(), plan=describe(c, plan), score=round(plan.score, 2),
+        self.log(kind="combat", floor=self.state.floor, state=c.summary(), plan=describe(c, plan), score=round(plan.score, 2),
                  cards={x.name: x.effects.text for x in c.hand if x.effects}, play=self.play)
         if not self.play:
             if self.use_llm:  # advise mode: show what the LLM would play, touch nothing
@@ -500,7 +501,7 @@ class Bot:
                 f" -> enemy {first.target + 1}" if first.target is not None else ""))
             secs = "" if ch.source == "llm plan" else f" [{llm.last['seconds']:.1f}s]"
             self.say(f"  {ch.source}: {what} ({ch.reason}){secs}")
-            self.log(kind="llm_fight", choice=what, reason=ch.reason, source=ch.source,
+            self.log(kind="llm_fight", choice=what, reason=ch.reason, source=ch.source, enemies=list(self.name_cache.values()),
                      seconds=round(llm.last["seconds"], 2), error=llm.last["error"])
         self.times["think"] = time.time() - t0
         t0 = time.time()
@@ -725,7 +726,17 @@ class Bot:
         if kind == "game_over":
             text = " ".join(l.text for l in lines)
             self.say(f"game over screen: {text[:120]}")
-            self.log(kind="game_over", floor=self.state.floor, hp=self.state.hp, deck=len(self.state.deck.cards))
+            won = bool(re.search(r"\bvictory\b", text, re.I))
+            self.log(kind="game_over", floor=self.state.floor, hp=self.state.hp, deck=len(self.state.deck.cards),
+                     won=won)
+            if self.use_llm and not self.state.reviewed:
+                # The user's rule: after every run (death or win) the LLM learns from the log.
+                self.state.reviewed = True
+                self.state.save()
+                try:
+                    review_last_run([d.name for d in self.state.deck.cards], self.state.build, won, say=self.say)
+                except Exception as e:  # a failed review never stops the bot
+                    self.say(f"review failed: {e}")
             if self.click_line(lines, W, H, list(GAME_OVER_BUTTONS)) is None:
                 self.guard()
                 inputs.click(self.win, 0.5, 0.9)  # most game-over screens go on with a click

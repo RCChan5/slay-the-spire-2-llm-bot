@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import context as cx
+from .review import learned_rules
 from . import llm
 from .cards import parse
 from .planner import Action, Plan, describe
@@ -72,6 +73,9 @@ def fight_prompt(c: Combat, options: list[Plan], names: list[str], relics: list[
     lines += ["", "Enemies:"] + _enemy_lines(c, names)
     if relics:
         lines += ["", "Relics: " + "; ".join(cx.relic_line(r) or r for r in relics)]
+    rules = learned_rules()
+    if rules:
+        lines += ["", "Rules learned from past runs (follow them):"] + [f"- {r}" for r in rules]
     lines += ["", "Simulator's best orders:"]
     for k, p in enumerate(options[:4], 1):
         lines.append(f"{k}. {describe(c, p)}")
@@ -172,6 +176,9 @@ def pick_prompt(offers, deck, floor: int, build: str, committed_at: int | None, 
     if build in cx.BUILD_SECTIONS:
         guide += "\n\n" + cx.build_guide(build)
     names = ", ".join(sorted(d.name for d in deck.cards))
+    rules = learned_rules()
+    if rules:
+        guide += "\n\nRules learned from past runs (follow them):\n" + "\n".join(f"- {r}" for r in rules)
     lines = [guide, "", f"Floor {floor}. HP {hp}/{max_hp}.",
              f"Current build: {build}" + (f" (committed on floor {committed_at}; stick to it)" if committed_at else ""),
              f"Deck: {names}", "Deck summary: " + deck_stats(deck), "", "Offered cards:"]

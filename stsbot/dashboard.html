@@ -116,6 +116,15 @@
   </section>
 
   <section class="wide">
+    <h2>What it learned</h2>
+    <p class="muted">After each run (death or win) the LLM reviews the log, adds its lessons to
+      context\what_i_learned.md and keeps the top rules below, which go into every fight and card-pick prompt.
+      Edit context\learned_rules.md to change them.</p>
+    <ol id="rules"></ol>
+    <details><summary>Latest run's review</summary><pre id="latest"></pre></details>
+  </section>
+
+  <section class="wide">
     <h2>LLM thinking</h2>
     <p class="muted">Each question the LLM is asked, its answer as it comes in, and the reason it gave. Plays that
       follow a plan already made are not asked again, so they do not show here.</p>
@@ -229,7 +238,17 @@ async function refreshLlm() {
   } catch (e) {}
 }
 
-refresh(); loadImages(); refreshLlm();
+async function loadLessons() {
+  try {
+    const d = await api("/api/lessons");
+    $("rules").innerHTML = d.rules.length ? d.rules.map(r => `<li>${esc(r)}</li>`).join("")
+                                          : "<li class='muted'>Nothing learned yet: the first review comes after a run ends.</li>";
+    $("latest").textContent = d.latest || "No review yet.";
+  } catch (e) {}
+}
+
+refresh(); loadImages(); refreshLlm(); loadLessons();
+setInterval(loadLessons, 30000);
 setInterval(refresh, 2500);
 setInterval(refreshLlm, 700);
 </script>

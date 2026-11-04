@@ -14,6 +14,7 @@ from pathlib import Path
 OLLAMA = "http://127.0.0.1:11434/api/chat"
 MODEL = "qwen3-vl:8b-instruct"  # the user's choice: a fast 8B model that fits on the GPU
 TIMEOUT = 20.0  # seconds; the user allows about 10 per decision, this is the hard stop
+REVIEW_TIMEOUT = 120.0  # a run review writes much more
 OPTIONS = {"temperature": 0.2, "num_ctx": 8192, "num_predict": 400}
 
 last = {"seconds": 0.0, "error": "", "raw": ""}  # the last call, for the log
@@ -46,7 +47,7 @@ def _add_history(entry: dict):
         pass
 
 
-def ask(system: str, user: str, model: str = MODEL, kind: str = "") -> dict | None:
+def ask(system: str, user: str, model: str = MODEL, kind: str = "", options: dict | None = None) -> dict | None:
     """Ask the model; the answer streams in (shown live on the dashboard) and is parsed as JSON at the end."""
     body = json.dumps({
         "model": model,
@@ -54,7 +55,7 @@ def ask(system: str, user: str, model: str = MODEL, kind: str = "") -> dict | No
         "format": "json",
         "stream": True,
         "keep_alive": "30m",  # stay loaded between decisions
-        "options": OPTIONS,
+        "options": options or OPTIONS,
     }).encode()
     req = urllib.request.Request(OLLAMA, data=body, headers={"Content-Type": "application/json"})
     t = time.time()
@@ -64,7 +65,8 @@ def ask(system: str, user: str, model: str = MODEL, kind: str = "") -> dict | No
     parts: list[str] = []
     shown = t
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        limit = REVIEW_TIMEOUT if options and options.get("num_predict", 0) > OPTIONS["num_predict"] else TIMEOUT
+        with urllib.request.urlopen(req, timeout=limit) as r:
             for raw in r:
                 if not raw.strip():
                     continue
@@ -76,7 +78,7 @@ def ask(system: str, user: str, model: str = MODEL, kind: str = "") -> dict | No
                     _write_live(entry)
                 if chunk.get("done"):
                     break
-                if time.time() - t > TIMEOUT:
+                if time.time() - t > limit:
                     raise TimeoutError("took too long")
         text = "".join(parts)
         last.update(seconds=time.time() - t, error="", raw=text)

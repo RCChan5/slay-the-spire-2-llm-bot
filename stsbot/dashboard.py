@@ -189,6 +189,19 @@ def api_llm():
     return {"live": live, "history": history[::-1]}
 
 
+@app.get("/api/lessons")
+def api_lessons():
+    """The rules learned from past runs (they go into the prompts) and the latest run's lessons."""
+    from .review import LESSONS_FILE, learned_rules
+    latest = ""
+    try:
+        text = LESSONS_FILE.read_text(encoding="utf-8")
+        latest = "## " + text.split("\n## ")[-1] if "\n## " in text else ""
+    except OSError:
+        pass
+    return {"rules": learned_rules(), "latest": latest.strip()}
+
+
 @app.post("/api/start")
 def api_start():
     with _lock:
