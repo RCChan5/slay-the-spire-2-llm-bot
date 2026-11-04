@@ -97,6 +97,7 @@ class Bot:
         self.loot_clicks: dict[str, int] = {}
         self.map_tries = 0
         self.synced_floor = -1
+        self.last_room = ""  # the kind of room last chosen on the map (a treasure room needs its chest clicked)
         self.pending_play: set[str] = set()  # cards the current plan still means to play this turn
         self.prompt_tries = 0
         self.statuses = StatusBook()
@@ -508,6 +509,7 @@ class Bot:
             self.say("  clicked the map 3 times without leaving it; stopping so you can look")
             raise Stuck("map click had no effect")
         r = m.rooms[ch.room]
+        self.last_room = r.kind
         self.guard()
         inputs.click(self.win, r.x, r.y)
         self.remember_pointer()
@@ -939,6 +941,26 @@ class Bot:
             if acted is False:
                 return True
             self.idle_since = time.time()
+            return False
+        if kind == "treasure_open" and self.play:
+            self.say("treasure: taking the relic")
+            self.log(kind="treasure", step="relic")
+            self.guard()
+            inputs.click(self.win, 0.5, 0.43)  # the relic sits in the middle of the open chest
+            self.remember_pointer()
+            self.move(*REST)
+            self.last_room = ""
+            time.sleep(1.2)
+            return False
+        if (kind == "unknown" and self.play and self.last_room == "treasure"
+                and not any(0.2 < l.center[1] / H < 0.8 and 0.2 < l.center[0] / W < 0.8 for l in lines)):
+            self.say("treasure: opening the chest")
+            self.log(kind="treasure", step="open")
+            self.guard()
+            inputs.click(self.win, 0.52, 0.58)  # the closed chest in the middle of the room
+            self.remember_pointer()
+            self.move(*REST)
+            time.sleep(1.5)
             return False
         if kind == "remove_select":
             if self.play or kind != self.last_summary:

@@ -120,6 +120,9 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
 17. **Card removal** (events, shops): curses first, then Strike, then Defend, then the weakest card,
     confirmed with the check mark.
 
+18. **Treasure rooms**: after choosing a treasure on the map, the bot clicks the closed chest (the gold is
+    added by itself), takes the relic on the "What's Inside?" screen, then clicks Proceed.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:

@@ -106,6 +106,8 @@ def screen_kind(lines: list[Line], W: int, H: int) -> str:
         return "combat"
     if "enemy" in corner or re.search(r"enemy turn", texts):
         return "enemy_turn"
+    if re.search(r"what.?s\s*inside", texts):  # an opened treasure chest with its relic
+        return "treasure_open"
     if re.search(r"what\s*shall", texts):  # "What shall I do?" (OCR sometimes drops the I)
         return "campfire"
     if "card to upgrade" in texts:

@@ -29,6 +29,8 @@ CASES = {
     "camp1.png": dict(kind="campfire"),
     "smith1.png": dict(kind="upgrade_select"),
     "remove1.png": dict(kind="remove_select"),
+    "treasure3.png": dict(kind="treasure_open"),
+    "treasure5.png": dict(kind="proceed"),
 }
 
 ocr = Ocr()
