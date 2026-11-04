@@ -77,5 +77,34 @@ check("existing Vulnerable counted", [(a.card, a.target) for a in plan_turn(c).a
 c = Combat(50, 80, 0, 1, 3, 2, hand(S, D), [Enemy(30, 30, 0.75, 0.7, 1, 1, intent_attack=False)])
 check("non-attack intent", [c.hand[a.card].name for a in plan_turn(c).actions], ["Strike"])
 
+# User rule: block first at any HP; kill only when that saves at least as much HP.
+c = Combat(80, 80, 0, 1, 3, 2, hand(S, D), [Enemy(30, 30, 0.75, 0.7, 8, 1)])
+check("full HP, 8 coming: Defend over Strike", [c.hand[a.card].name for a in plan_turn(c).actions], ["Defend"])
+
+c = Combat(60, 80, 0, 2, 3, 2, hand(S, S, D), [Enemy(30, 30, 0.75, 0.7, 4, 1)])
+check("small hit: block it, then attack with the rest",
+      sorted(c.hand[a.card].name for a in plan_turn(c).actions), ["Defend", "Strike"])
+
+# Killing a non-attacker while another enemy hits for 6: block instead.
+c = Combat(60, 80, 0, 1, 3, 2, hand(S, D), [Enemy(5, 20, 0.65, 0.7, 0, 1, intent_attack=False),
+                                           Enemy(30, 30, 0.8, 0.7, 6, 1)])
+check("no kill that costs HP elsewhere", [c.hand[a.card].name for a in plan_turn(c).actions], ["Defend"])
+
+# Killing the attacker saves 9 HP, blocking saves 5: kill.
+c = Combat(60, 80, 0, 1, 3, 2, hand(S, D), [Enemy(6, 20, 0.75, 0.7, 9, 1)])
+check("kill when it saves more HP than blocking", [(c.hand[a.card].name, a.target) for a in plan_turn(c).actions],
+      [("Strike", 0)])
+
+# Nothing coming: attack with everything.
+c = Combat(60, 80, 0, 2, 3, 2, hand(S, D, S), [Enemy(30, 30, 0.75, 0.7, 0, 1, intent_attack=False)])
+check("no attack coming: all damage", sorted(c.hand[a.card].name for a in plan_turn(c).actions), ["Strike", "Strike"])
+
+# Infection in hand: 3 damage at the end of the turn counts as coming damage, so it blocks for it.
+inf = Card("Infection", None, 0.6, 0.82)
+inf.effects = effects_for("Infection", "Unplayable. At the end of your turn, if this is in your Hand, take 3 damage.",
+                          "Status")
+c = Combat(20, 80, 0, 1, 3, 2, hand(S, D) + [inf], [Enemy(30, 30, 0.75, 0.7, 0, 1, intent_attack=False)])
+check("end-of-turn status damage is blocked", [c.hand[a.card].name for a in plan_turn(c).actions], ["Defend"])
+
 print(f"test_planner: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

@@ -25,6 +25,7 @@ CASES = {
     "neow3.png": dict(kind="proceed"),
     "cards1.png": dict(kind="card_choice"),
     "reward1.png": dict(kind="loot"),
+    "gameover1.png": dict(kind="game_over"),
 }
 
 ocr = Ocr()

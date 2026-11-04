@@ -15,6 +15,10 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
    Weak, Strength, draw, energy, Exhaust, Unplayable. Cards it does not understand are left out.
 5. **Planner** (`stsbot/planner.py`): tries every order of playable cards and targets, simulates damage
    (x1.5 on Vulnerable), block against the shown intents (x0.75 when Weak), and scores the result.
+   **Block first** (the user's rule, at any HP): each HP lost weighs 10 against 1 per point of damage dealt,
+   so it blocks before attacking. A kill counts through the damage that enemy no longer deals, so it kills
+   only when that saves at least as much HP as blocking would. Status cards that hurt at the end of the
+   turn (Infection, Burn) count as coming damage.
 6. **Bot** (`stsbot/bot.py`): plays the first card of the best plan by dragging it onto its target,
    reads the screen again, re-plans, and clicks End Turn when nothing is worth playing.
 7. **Intents and statuses**: small numbers are read again at 2x to 3x zoom. In play mode each intent is

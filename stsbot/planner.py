@@ -7,12 +7,13 @@ powers and draws. Cards whose text was not understood are left out rather than g
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .screen import Combat
 
-KILL_BONUS = 12.0
-HP_LOSS_WEIGHT = 1.4
+KILL_BONUS = 3.0  # a tie-breaker: a kill counts mainly through the damage that enemy no longer deals
+HP_LOSS_WEIGHT = 10.0  # user rule: block first at any HP; HP lost outweighs damage dealt
 VULN_VALUE = 2.0  # per stack per living enemy (extra damage on later turns)
 WEAK_VALUE = 1.5
 POWER_VALUE = 7.0
@@ -43,10 +44,12 @@ class _Foe:
     block: int = 0
 
 
-def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, powers: int, draws: int) -> tuple[float, str]:
+def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, powers: int, draws: int,
+           self_damage: int = 0) -> tuple[float, str]:
     dealt = sum(max(0, s.hp - f.hp) for s, f in zip(start, foes))
     kills = sum(1 for s, f in zip(start, foes) if s.hp > 0 and f.hp <= 0)
     incoming = sum(int(f.incoming * (0.75 if f.weak else 1.0)) for f in foes if f.hp > 0)
+    incoming += self_damage  # status cards in hand that hurt at the end of the turn (Infection, Burn)
     loss = max(0, incoming - block)
     alive = [f for f in foes if f.hp > 0]
     debuffs = sum(min(f.vuln, 3) * VULN_VALUE + min(f.weak, 3) * WEAK_VALUE for f in alive)
@@ -61,9 +64,14 @@ def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, power
 
 def plan_turn(c: Combat) -> Plan:
     start = [_Foe(e.hp, e.incoming, e.statuses.get("Vulnerable", 0), 0, e.block) for e in c.enemies]
+    self_damage = 0
+    for card in c.hand:
+        m = re.search(r"end of your turn.*?take\s*(\d+)\s*damage", card.effects.text if card.effects else "", re.I)
+        if m:
+            self_damage += int(m.group(1))
     hand = c.hand
-    best = Plan(score=_score(start, start, c.block, 0, 0, 0)[0], why="end turn", block_after=c.block)
-    best.why = _score(start, start, c.block, 0, 0, 0)[1]
+    best = Plan(score=_score(start, start, c.block, 0, 0, 0, self_damage)[0], why="end turn", block_after=c.block)
+    best.why = _score(start, start, c.block, 0, 0, 0, self_damage)[1]
     seen: set = set()
 
     def go(used: frozenset, energy: int, foes: list[_Foe], block: int, strength: int, powers: int, draws: int,
@@ -74,7 +82,7 @@ def plan_turn(c: Combat) -> Plan:
         if key in seen:
             return
         seen.add(key)
-        s, why = _score(foes, start, block, strength, powers, draws)
+        s, why = _score(foes, start, block, strength, powers, draws, self_damage)
         if s > best.score + 1e-9:
             best = Plan(list(actions), s, why, block)
         if all(f.hp <= 0 for f in foes):

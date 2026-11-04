@@ -54,6 +54,17 @@ REST = (0.5, 0.3)  # where the pointer waits, away from cards and tooltips
 KIND_WORDS = {"attack": "Attack", "skill": "Skill", "power": "Power", "curse": "Curse", "status": "Status"}
 
 
+def looks_like_event(lines, W, H) -> bool:
+    """An event screen has its title top right and no health bars. (A card tooltip in a fight once looked
+    like event options: "Unplayable. At the end of your turn ...".)"""
+    for l in lines:
+        fy = l.center[1] / H
+        if FRAC.match(l.text.strip()) and 0.55 < fy < 0.8:
+            return False  # a health bar: this is a fight
+    return any(0.5 < l.center[0] / W < 0.9 and 0.17 < l.center[1] / H < 0.29 and re.search(r"[A-Za-z]{3}", l.text)
+               for l in lines)
+
+
 class UserTookOver(Exception):
     pass
 
@@ -558,6 +569,8 @@ class Bot:
 
     def event_step(self, lines, W, H) -> bool | None:
         """An event: option boxes on the right. None if this screen has none."""
+        if not looks_like_event(lines, W, H):
+            return None
         opts = read_options(lines, W, H, EVENT_REGION)
         if not opts:
             return None
@@ -690,7 +703,7 @@ class Bot:
                 self.move(*REST)
                 time.sleep(1.0)
                 return False
-        if kind == "unknown":
+        if kind == "unknown" and looks_like_event(lines, W, H):
             sig = "event|" + "|".join(sorted(o.title for o in read_options(lines, W, H, EVENT_REGION)))
             if sig != "event|" and (self.play or sig != self.last_summary):
                 self.last_summary = sig

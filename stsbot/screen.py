@@ -120,7 +120,7 @@ def screen_kind(lines: list[Line], W: int, H: int) -> str:
     if words & {"ironclad", "silent", "defect", "regent", "necrobinder", "the ironclad", "the silent",
                 "the defect", "the regent", "the necrobinder"}:  # the big name, read as one or two lines
         return "char_select"
-    if re.search(r"\b(defeat|victory|game over|you died|slain)\b", texts):
+    if re.search(r"\b(vanquished|consciousness fades|defeat|victory|game over|you died|slain)\b", texts):
         return "game_over"
     if "neow" in texts and not re.search(r"\bproceed\b", texts):
         return "neow"
