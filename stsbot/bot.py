@@ -33,7 +33,7 @@ from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
 from .handpick import discard_pick, read_prompt, upgrade_pick
-from .deckview import DECK_ICON, merge_pages, page_names
+from .deckview import DECK_ICON, clean_name, merge_pages, page_names
 from .campfire import CONFIRM, best_removal, best_upgrade, campfire_options, read_grid, should_rest
 from .events import best_option, read_options
 from .ocr import Line
@@ -727,8 +727,14 @@ class Bot:
                 break  # did not move: the end of the grid
             pages.append((cards, sig))
         known = {c.name for c in self.state.deck.cards}
-        seen = {c.name: c for cards, _ in pages for c in cards}
+        seen = {}
+        for cards, _ in pages:
+            for c in cards:
+                c.name = clean_name(c.name)  # "+" read as "t", card text read as a name
+                seen[c.name] = c
         for name, c in seen.items():
+            if name == "Unknown card":
+                continue
             if name not in known and name.rstrip("+") not in known:
                 self.state.add(name, c.kind, c.text, None)  # a card the bot had not tracked (event, Neow, you)
                 self.say(f"  deck: added {name}, seen on the grid but not tracked")
