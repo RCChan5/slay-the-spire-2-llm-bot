@@ -47,6 +47,7 @@ def name_from_tooltip(text: str) -> str | None:
 class StatusBook:
     def __init__(self):
         self.icons: dict[str, list[np.ndarray]] = {}
+        self.unknown: list[np.ndarray] = []  # icons with no name this fight (cleared between fights)
         if ICONS.exists():
             for p in ICONS.glob("*.png"):
                 name = p.stem.split("__")[0].replace("_", " ")
@@ -67,6 +68,24 @@ class StatusBook:
                 if s > best_s:
                     best, best_s = name, s
         return best
+
+    def mark_unknown(self, img: np.ndarray, dx: float, dy: float):
+        """An icon whose tooltip gave no name (a teammate's power in multiplayer, say): remembered for this
+        fight so it is not hovered again after every card."""
+        cx, cy = icon_center(dx, dy)
+        self.unknown.append(_crop(img, cx, cy, HALF_W, HALF_H))
+
+    def is_unknown(self, img: np.ndarray, dx: float, dy: float, min_score: float = 0.8) -> bool:
+        if not self.unknown:
+            return False
+        cx, cy = icon_center(dx, dy)
+        window = _crop(img, cx, cy, HALF_W + PAD_W, HALF_H + PAD_H)
+        for t in self.unknown:
+            if t.size == 0 or t.shape[0] > window.shape[0] or t.shape[1] > window.shape[1]:
+                continue
+            if float(cv2.matchTemplate(window, t, cv2.TM_CCOEFF_NORMED).max()) > min_score:
+                return True
+        return False
 
     def learn(self, name: str, img: np.ndarray, dx: float, dy: float):
         cx, cy = icon_center(dx, dy)

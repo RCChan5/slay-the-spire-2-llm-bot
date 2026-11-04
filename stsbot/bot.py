@@ -109,6 +109,11 @@ class Bot:
         self.statuses = StatusBook()
         self.intent_cache: dict[tuple, tuple[bool, int, int]] = {}
         self.fight_queue: dict | None = None  # the LLM's plan for this turn (see combat_step)
+        # Speed: reads reused while nothing they depend on changed (see enrich and step).
+        self.slot_cache: dict[tuple, list] = {}  # (turn, enemy x, hp, block) -> status stack numbers
+        self.intent_read: tuple | None = None  # (key, digits) of the last intents read
+        self.reuse: tuple | None = None  # (time, img, lines, W, H) read right after a card play
+        self.times: dict[str, float] = {}  # seconds spent on this decision, for the log
         self.blocked: set[tuple[int, str]] = set()
         self.potion_cache: dict[tuple, object] = {}  # (turn, slot) -> Potion  # (turn, card) the game would not let it play
         LOGS.mkdir(exist_ok=True)
@@ -175,13 +180,38 @@ class Bot:
         prev = cv2.resize(self.frame(), (320, 180))
         t0 = time.time()
         while True:
-            time.sleep(0.25)
+            time.sleep(0.15)
             cur_full = self.frame()
             cur = cv2.resize(cur_full, (320, 180))
             diff = float(np.mean(cv2.absdiff(prev, cur)))
             if diff < 1.2 or time.time() - t0 > timeout:
                 return cur_full
             prev = cur
+
+    def hover_wait(self, region, timeout: float = 0.6, min_wait: float = 0.12):
+        """After a hover: wait until the region (x0, x1, y0, y1 fractions) has changed (card raised, tooltip
+        shown) and is still again, instead of a fixed pause. Returns the last frame."""
+        def crop(img):
+            H, W = img.shape[:2]
+            c = img[int(region[2] * H):int(region[3] * H), int(region[0] * W):int(region[1] * W)]
+            return cv2.resize(c, (160, 120)) if c.size else c
+        t0 = time.time()
+        time.sleep(min_wait)
+        img = self.frame()
+        first = prev = crop(img)
+        changed = False
+        while time.time() - t0 < timeout:
+            time.sleep(0.05)
+            img = self.frame()
+            cur = crop(img)
+            if cur.size == 0:
+                break
+            if not changed and float(np.mean(cv2.absdiff(first, cur))) > 4:
+                changed = True
+            elif changed and float(np.mean(cv2.absdiff(prev, cur))) < 1.0:
+                return img
+            prev = cur
+        return img
 
     def read(self, img):
         H, W = img.shape[:2]
@@ -191,15 +221,15 @@ class Bot:
     # ---------- card text
     def card_text(self, c: Combat, card: Card) -> tuple[str, str]:
         """Hover the card and read its kind and text from the raised card."""
-        key = (c.turn, card.name)
+        # The text only changes with the player's statuses (Strength, Weak), so it is kept across turns.
+        key = (card.name, tuple(sorted(c.statuses.items())))
         if key in self.text_cache:
             return self.text_cache[key]
         if not self.play:
             # Advise mode never moves the mouse; known starter text is used instead.
             return "", ""
         self.move(card.x, 0.9)
-        time.sleep(0.35)
-        img = self.frame()
+        img = self.hover_wait((max(0, card.x - 0.11), min(1, card.x + 0.11), 0.6, 0.975), timeout=0.7)
         H, W = img.shape[:2]
         x0, x1 = int(max(0, card.x - 0.11) * W), int(min(1, card.x + 0.11) * W)
         y0, y1 = int(0.79 * H), int(0.975 * H)
@@ -230,8 +260,8 @@ class Bot:
     def tooltip(self, fx, fy, region) -> str:
         """Hover a point and read the text in region (x0, x1, y0, y1 fractions)."""
         self.move(fx, fy)
-        time.sleep(0.45)
-        img = self.frame()
+        img = self.hover_wait((max(0, region[0]), min(1, region[1]), max(0, region[2]), min(1, region[3])),
+                              timeout=0.8, min_wait=0.15)
         H, W = img.shape[:2]
         x0, x1, y0, y1 = (max(0, region[0]), min(1, region[1]), max(0, region[2]), min(1, region[3]))
         lines = self.ocr.read(img[int(y0 * H):int(y1 * H), int(x0 * W):int(x1 * W)])
@@ -239,20 +269,31 @@ class Bot:
 
     def enrich(self, img, c: Combat):
         """Small numbers the full-screen read misses, intents as attack or not, and status names."""
+        # Enemy numbers are read again only when an enemy's HP or block changed, or after a card that could
+        # debuff them (that clears these caches): a block or power card changes nothing there.
         if c.enemies:
-            assign_intents(c.enemies, self.crop_read(img, 0.45, 1.0, 0.12, 0.665, 2.0))
+            key = (c.turn, tuple((round(e.x, 2), e.hp, e.block) for e in c.enemies))
+            if self.intent_read is None or self.intent_read[0] != key:
+                self.intent_read = (key, self.crop_read(img, 0.45, 1.0, 0.12, 0.665, 2.0))
+            assign_intents(c.enemies, self.intent_read[1])
         owners = [(c.player_x, c)] + [(e.x, e) for e in c.enemies]
         for x, who in owners:
             if who.status_slots:
                 continue
+            key = None if who is c else (c.turn, round(x, 2), who.hp, who.block)
+            if key is not None and key in self.slot_cache:
+                who.status_slots.extend(self.slot_cache[key])
+                continue
             for t, fx, fy in self.crop_read(img, max(0, x - 0.1), min(1, x + 0.1), 0.71, 0.77, 3.0):
                 if DIGITS.match(t) and int(t) < 100:  # stacks are small; a big number is a misread
                     who.status_slots.append((fx, fy, int(t)))
+            if key is not None:
+                self.slot_cache[key] = list(who.status_slots)
         hovered = False
         for x, who in owners:
             for fx, fy, n in who.status_slots:
                 name = self.statuses.identify(img, fx, fy)
-                if name is None and self.play:
+                if name is None and self.play and not self.statuses.is_unknown(img, fx, fy):
                     ix, iy = icon_center(fx, fy)
                     text = self.tooltip(ix, iy, (ix - 0.3, ix + 0.3, iy - 0.35, iy + 0.12))
                     hovered = True
@@ -261,13 +302,14 @@ class Bot:
                         self.statuses.learn(name, img, fx, fy)
                         self.say(f"  learned status icon: {name}")
                     else:
-                        self.say(f"  status icon not recognized (tooltip: {text[:80]!r})")
+                        self.statuses.mark_unknown(img, fx, fy)
+                        self.say(f"  status icon not recognized (tooltip: {text[:80]!r}); not hovered again this fight")
                 who.statuses[name or "?"] = who.statuses.get(name or "?", 0) + n
         for i, e in enumerate(c.enemies):
             if e.intent_pos is None:
                 continue
             nx, ny = e.intent_pos
-            key = (c.turn, i, e.intent_damage, e.hp)
+            key = (c.turn, round(e.x, 2), e.intent_damage)  # an intent stays the same while its number does
             if key in self.intent_cache:
                 e.intent_attack, dmg, hits = self.intent_cache[key]
             elif self.play:
@@ -289,6 +331,7 @@ class Bot:
         """After a drag: did energy drop or the hand shrink? (A missed drop sends the card back.)"""
         img = self.settled_frame(timeout=2.5)
         lines, W, H = self.read(img)
+        self.reuse = (time.time(), img, lines, W, H)  # the next step starts from this read
         if screen_kind(lines, W, H) != "combat":
             return True  # the fight ended or a choice opened
         after = read_combat(lines, W, H)
@@ -350,8 +393,7 @@ class Bot:
             key = (round(e.x, 2), e.max_hp)
             if key not in self.name_cache and self.play:
                 self.move(*e.body_point)
-                time.sleep(0.4)
-                img = self.frame()
+                img = self.hover_wait((max(0, e.x - 0.12), min(1, e.x + 0.12), e.y - 0.02, e.y + 0.07), timeout=0.7)
                 H, W = img.shape[:2]
                 x0, x1 = max(0, e.x - 0.12), min(1, e.x + 0.12)
                 lines = self.ocr.read(img[int((e.y + 0.008) * H):int((e.y + 0.06) * H), int(x0 * W):int(x1 * W)])
@@ -393,6 +435,7 @@ class Bot:
                 match = difflib.get_close_matches(card.name, known, n=1, cutoff=0.75)
                 if match:
                     card.name = match[0]
+        t0 = time.time()
         self.enrich(img, c)
         saved = {d.name: (d.kind, d.text) for d in self.state.deck.cards}
         costs = {d.name: d.cost for d in self.state.deck.cards if d.cost is not None}
@@ -405,7 +448,8 @@ class Bot:
                 card.effects.unplayable = True
         if self.play and c.hand:
             self.move(*REST)
-            time.sleep(0.2)
+            time.sleep(0.1)
+        self.times["details"] = time.time() - t0
         options: list = []
         plan = plan_turn(c, options)
         self.say(c.summary())
@@ -426,6 +470,7 @@ class Bot:
             return True
         self.pending_play = {c.hand[a.card].name for a in plan.actions[1:]}
         first = plan.actions[0] if plan.actions else None
+        t0 = time.time()
         if self.use_llm:
             # The LLM plans the whole turn once. While the hand is just the last hand minus the card played,
             # its next play is used as is; a newly drawn card (or a plan that no longer fits) asks again,
@@ -457,9 +502,15 @@ class Bot:
             self.say(f"  {ch.source}: {what} ({ch.reason}){secs}")
             self.log(kind="llm_fight", choice=what, reason=ch.reason, source=ch.source,
                      seconds=round(llm.last["seconds"], 2), error=llm.last["error"])
+        self.times["think"] = time.time() - t0
+        t0 = time.time()
         if first is not None:
             a = first
             card = c.hand[a.card]
+            e = card.effects
+            if e is None or not e.known or e.vulnerable or e.weak or e.enemy_strength:
+                self.intent_read = None  # it may debuff the enemies: read their numbers again
+                self.slot_cache.clear()
             drops = c.enemies[a.target].drop_points if a.target is not None else [(0.5, 0.42), (0.5, 0.3)]
             for i, target in enumerate(drops):
                 self.guard()
@@ -473,14 +524,17 @@ class Bot:
                 self.blocked.add((c.turn, card.name))
                 self.say(f"  {card.name} would not play; leaving it out this turn")
                 self.log(kind="play_failed", card=card.name, turn=c.turn)
+            self.times["play"] = time.time() - t0
+            self.say("  time: " + ", ".join(f"{k} {v:.1f}s" for k, v in self.times.items()))
+            self.log(kind="timing", **{k: round(v, 2) for k, v in self.times.items()})
         else:
             self.guard()
             inputs.click(self.win, *END_TURN)
             self.remember_pointer()
             self.move(*REST)
             self.turns_played += 1
-            self.text_cache.clear()
             self.intent_cache.clear()
+            self.intent_read = None
             time.sleep(1.0)
         return True
 
@@ -1006,8 +1060,14 @@ class Bot:
             return True
         if self.play:
             self.guard()
-        img = self.settled_frame()
-        lines, W, H = self.read(img)
+        t0 = time.time()
+        if self.reuse is not None and time.time() - self.reuse[0] < 1.0:
+            _, img, lines, W, H = self.reuse  # read just now, right after the card play
+        else:
+            img = self.settled_frame()
+            lines, W, H = self.read(img)
+        self.reuse = None
+        self.times = {"read": time.time() - t0}
         kind = screen_kind(lines, W, H)
         bar = read_top_bar(lines, W, H)
         if bar.floor is None:  # the floor number is small: read it again larger
@@ -1024,6 +1084,9 @@ class Bot:
             self.map_tries = 0
         if kind not in ("combat", "enemy_turn", "unknown"):
             self.name_cache.clear()  # out of the fight: the next fight's enemies are read fresh
+            self.statuses.unknown.clear()
+            self.slot_cache.clear()
+            self.text_cache.clear()
         if note and note != self.last_note:
             self.say("note: " + note)
             self.log(kind="note", note=note)

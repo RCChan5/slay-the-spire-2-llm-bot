@@ -156,6 +156,15 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
       damage, block, AoE, draw and scaling to fill real gaps.
     - `--no-llm` (or the dashboard switch) uses the built-in rules instead. The built-in card values now
       use the tier list in `context/` too.
+21. **Speed** (measured in a 4-player fight: about 13 s per card, the LLM about 1 s of it). The bot now
+    reuses what it already knows: the read taken right after a card play starts the next decision (no second
+    full read); enemy intents and status numbers are read again only when an enemy's HP or block changed or
+    a card that could debuff them was played; an intent tooltip is hovered once per number per turn; a status
+    icon whose tooltip gives no name (a teammate's power) is not hovered again that fight; card text is kept
+    across turns while the player's statuses are the same. Hovers wait until the card or tooltip has
+    appeared and stopped moving instead of a fixed pause. Every card play logs `time: read, details, think,
+    play` so the gain can be checked. Shrinking the screen before reading was measured and left out: it
+    saves 0.1 s but loses card costs, block and intent numbers.
 
 ## Run
 
@@ -189,6 +198,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
 C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
 C:\SAS\.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
 C:\SAS\.venv\Scripts\python -m tests.test_handpick  # choosing cards from the hand
+C:\SAS\.venv\Scripts\python -m tests.test_speed     # hover wait, unnamed icons
 C:\SAS\.venv\Scripts\python -m tests.test_brain     # the LLM layer (stand-in model); add --live for the real one
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
