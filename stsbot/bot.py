@@ -399,6 +399,11 @@ class Bot:
         self.log(kind="combat", state=c.summary(), plan=describe(c, plan), score=round(plan.score, 2),
                  cards={x.name: x.effects.text for x in c.hand if x.effects}, play=self.play)
         if not self.play:
+            if self.use_llm:  # advise mode: show what the LLM would play, touch nothing
+                ch = decide_fight(c, options, [], [], plan)
+                what = "end turn" if ch.action is None else c.hand[ch.action.card].name + (
+                    f" -> enemy {ch.action.target + 1}" if ch.action.target is not None else "")
+                self.say(f"  LLM would play: {what} ({ch.reason}) [{llm.last['seconds']:.1f}s]")
             return False
         if self.potion_step(img, c, plan):
             return True
