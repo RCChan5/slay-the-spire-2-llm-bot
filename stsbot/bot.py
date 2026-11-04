@@ -773,6 +773,9 @@ class Bot:
         inputs.click(self.win, card.x, card.y)
         self.remember_pointer()
         time.sleep(1.0)
+        # Keep a picture of the selection before confirming (to build a check of which card the game selected).
+        (ROOT / "shots").mkdir(exist_ok=True)
+        cv2.imwrite(str(ROOT / "shots" / time.strftime("remove_confirm_%H%M%S.png")), self.frame())
         self.guard()
         inputs.click(self.win, *CONFIRM)
         self.remember_pointer()
