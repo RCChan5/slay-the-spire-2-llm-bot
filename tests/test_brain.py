@@ -97,6 +97,15 @@ check("a queued play still legal is used", (c.hand[a.card].name, a.target), ("St
 check("a queued card no longer in hand asks again", brain.next_queued(c, ("Inflame", None)), None)
 check("new cards are named in the prompt", "Just drawn" in brain.fight_prompt(c, opts, [], [], ["Pommel Strike"]), True)
 
+calm = Combat(40, 80, 0, 1, 3, 3, [card("Strike", 1, "Deal 6 damage.", "Attack"), card("Defend", 1, "Gain 5 Block.", "Skill")],
+              [Enemy(30, 40, 0.65, 0.7, 0, 1)])
+answers[:] = [{"plan": [{"card": "Defend"}]}, {"plan": [{"card": "Strike", "target": 1}]}]
+ch = brain.decide_fight(calm, [], [], [], plan_turn(calm))
+check("block with nothing attacking is asked again", calm.hand[ch.action.card].name, "Strike")
+answers[:] = [{"plan": [{"card": "Defend"}]}, {"plan": [{"card": "Defend"}]}]
+ch = brain.decide_fight(calm, [], [], [], plan_turn(calm))
+check("the second answer stands (LLM has the final say)", calm.hand[ch.action.card].name, "Defend")
+
 from stsbot import context as cx
 check("OCR '+' read as i is put right", cx.proper_name("Body Slami"), "Body Slam+")
 check("a clipped name is completed", cx.proper_name("Forgotten Ritu"), "Forgotten Ritual")

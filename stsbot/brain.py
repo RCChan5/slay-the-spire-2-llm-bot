@@ -123,6 +123,16 @@ def _rest(plan) -> list:
     return out
 
 
+def _wasted_block(c: Combat, e) -> bool:
+    """A card that only gives block, played when nothing attacks and an attack could be played instead."""
+    if e is None or not e.block or sum(en.incoming for en in c.enemies if en.hp > 0) > 0:
+        return False
+    if e.damage or e.draw or e.energy or e.strength or e.vulnerable or e.weak or e.upgrades_hand or e.exhaust:
+        return False
+    return any(h.effects is not None and h.effects.damage and not h.effects.unplayable
+               and (h.cost if h.cost is not None else 99) <= c.energy for h in c.hand)
+
+
 def decide_fight(c: Combat, options: list[Plan], names: list[str], relics: list[str], fallback: Plan,
                  new_cards: list[str] = ()) -> FightChoice:
     user = fight_prompt(c, options, names, relics, new_cards)
@@ -148,6 +158,12 @@ def decide_fight(c: Combat, options: list[Plan], names: list[str], relics: list[
                         t = -1
                     if t not in alive:
                         t = min(alive, key=lambda j: c.enemies[j].hp)  # a bad target: the weakest living enemy
+                if attempt == 0 and _wasted_block(c, e):
+                    # Seen live: the 8B model blocks against attacks that are not coming. Ask once more,
+                    # saying so; its second answer stands (the LLM has the final say).
+                    user += (f"\n\nYour plan starts with {c.hand[i].name}, a block card, but no damage is coming this "
+                             "turn: block is wasted. Choose again: attacks, Powers or setup first.")
+                    continue
                 return FightChoice(Action(i, t), reason, "llm", _rest(plan))
         user += ("\n\nYour last answer was not a legal play (card not in hand, too expensive, or unplayable). "
                  "Choose again from the hand above.")
