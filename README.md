@@ -18,7 +18,8 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
    **Block first** (the user's rule, at any HP): each HP lost weighs 10 against 1 per point of damage dealt,
    so it blocks before attacking. A kill counts through the damage that enemy no longer deals, so it kills
    only when that saves at least as much HP as blocking would. Status cards that hurt at the end of the
-   turn (Infection, Burn) count as coming damage.
+   turn (Infection, Burn) count as coming damage. When two sets of block cards stop the same damage, the
+   cheaper one is played (the most block per energy).
 6. **Bot** (`stsbot/bot.py`): plays the first card of the best plan by dragging it onto its target,
    reads the screen again, re-plans, and clicks End Turn when nothing is worth playing.
 7. **Intents and statuses**: small numbers are read again at 2x to 3x zoom. In play mode each intent is
@@ -71,6 +72,10 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     - Self-damage / Rupture: Rupture, Inferno, Crimson Mantle; Bloodletting, Offering, Hemokinesis, Brand...
     - Strike: Perfected Strike, Hellraiser; Pommel Strike, Twin Strike, Ashen Strike...
 
+    **Block cards** (the user's rule) are judged by block per energy, with Defend's 5 per energy as the
+    baseline, plus 0.8 for each thing they do besides blocking (draw, damage, Vulnerable, Weak, energy,
+    Strength), minus 0.4 per HP they cost. This is added on top of the tier, so Shrug It Off (8 block and
+    a draw for 1) or Taunt (6 block and Vulnerable for 1) beat a plain 2-energy block card.
     Known cards start from the guides' tier (S 8, A 6.5, B 5, C 3.5, D 2.5, so D-tier cards such as Fight Me!
     are usually skipped); unknown cards are valued from their text and lean toward a build by keywords.
     Progress in a build is 3 per key card and 1 per support card. Once one build has 5 or more and leads the

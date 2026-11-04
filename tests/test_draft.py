@@ -32,8 +32,8 @@ CURSE = offer("Bad Luck", 0, "Curse", "Unplayable.")
 
 starter = Deck.starter()
 ch = choose([PERFECTED, TAUNT, POMMEL], starter, floor=2)
-check("starter deck takes a good attack", ch.pick is not None and [PERFECTED, TAUNT, POMMEL][ch.pick].name,
-      "Pommel Strike")
+check("starter deck takes Taunt: block plus Vulnerable for 1 energy (user rule: efficient block with extras)",
+      ch.pick is not None and [PERFECTED, TAUNT, POMMEL][ch.pick].name, "Taunt")
 
 ch = choose([WEAK_BLOCK, WEAK_HIT], starter, floor=2)
 check("skips cards no better than basics", ch.pick, None)
@@ -63,6 +63,14 @@ mid = offer("Solid Hit", 1, "Attack", "Deal 9 damage.")
 big = Deck(starter.cards + [DeckCard("Pommel Strike", "Attack", POMMEL.text, 1)] * 20)
 check("middling card taken in a small deck", choose([mid], starter, 2).pick, 0)
 check("middling card skipped in a big deck", choose([mid], big, 30).pick, None)
+
+# Block cards: block per energy and extras (user rule).
+shrug = value("Shrug It Off", 1, "Skill", "Gain 8 Block. Draw 1 card.", starter, 8)[0]
+clunky = value("Clunky Wall", 2, "Skill", "Gain 9 Block.", starter, 8)[0]
+check("8 block + draw for 1 beats 9 block for 2", shrug > clunky, True)
+wall = value("Blood Wall", 1, "Skill", "Lose 2 HP. Gain 16 Block.", starter, 8)[0]
+wall_free = value("Blood Wall", 1, "Skill", "Gain 16 Block.", starter, 8)[0]
+check("losing HP to block costs value", wall < wall_free, True)
 
 print(f"test_draft: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

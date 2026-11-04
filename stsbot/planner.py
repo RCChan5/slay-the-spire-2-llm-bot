@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from .screen import Combat
 
+ENERGY_LEFT = 0.02  # tie-breaker only: far below a point of damage or HP
 KILL_BONUS = 3.0  # a tie-breaker: a kill counts mainly through the damage that enemy no longer deals
 HP_LOSS_WEIGHT = 10.0  # user rule: block first at any HP; HP lost outweighs damage dealt
 VULN_VALUE = 2.0  # per stack per living enemy (extra damage on later turns)
@@ -83,6 +84,7 @@ def plan_turn(c: Combat) -> Plan:
             return
         seen.add(key)
         s, why = _score(foes, start, block, strength, powers, draws, self_damage)
+        s += ENERGY_LEFT * energy  # equal outcome for less energy: the most efficient block (user rule)
         if s > best.score + 1e-9:
             best = Plan(list(actions), s, why, block)
         if all(f.hp <= 0 for f in foes):

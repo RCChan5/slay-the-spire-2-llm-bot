@@ -103,6 +103,19 @@ def value(name: str, cost: int | None, kind: str, text: str, deck: Deck, floor: 
         extra = 0.4 * max(0, strikes - 5) if m else 0.0
         v = tv + extra
         why = [w for w in why if "Strike cards" in w] + [f"tier {tv:.1f}"]
+    if e.block:
+        # User rule: block cards are judged by block per energy (Defend's 5 per energy is the baseline) and by
+        # what they do besides blocking. The text formula above already counts block per energy for unknown
+        # cards, so the ratio is added only on top of a tier.
+        ratio = e.block / per
+        extras = [n for n, on in (("draw", e.draw), ("damage", e.damage), ("Vulnerable", e.vulnerable),
+                                  ("Weak", e.weak), ("energy", e.energy), ("Strength", e.strength)) if on]
+        b = 0.8 * len(extras) + (0.35 * (ratio - 5) if tv is not None else 0.0)
+        hp_cost = re.search(r"Lose\s*(\d+)\s*HP", text)
+        if hp_cost:
+            b -= 0.4 * int(hp_cost.group(1))  # the user wants as little HP lost as possible
+        v += b
+        why.append(f"{ratio:.0f} block per energy" + (f" + {', '.join(extras)}" if extras else ""))
 
     if in_deck:
         return round(v, 2), why

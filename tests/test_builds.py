@@ -66,11 +66,11 @@ check("...but leaning toward both", sorted(st.leaning), ["block", "strength"])
 check("Fight Me! (D tier) skipped by the starter deck",
       pick([offer("Fight Me!", "Attack", "Deal 5 damage twice. Gain 3 Strength. The enemy gains 1 Strength.", 2)],
            starter, 3), None)
-check("starter deck takes Pommel Strike from the live offer",
+check("starter deck takes Taunt from the live offer (efficient block with an extra)",
       pick([offer("Perfected Strike", "Attack", 'Deal 6 damage. Deals 2 additional damage for ALL your cards '
                                                 'containing "Strike".', 2),
             offer("Taunt", "Skill", "Gain 6 Block. Apply 1 Vulnerable."),
-            offer("Pommel Strike", "Attack", "Deal 9 damage. Draw 1 card.")], starter, 2), "Pommel Strike")
+            offer("Pommel Strike", "Attack", "Deal 9 damage. Draw 1 card.")], starter, 2), "Taunt")
 
 vuln = Deck(starter.cards + [card("Dismantle", "Attack", "Deal 8 damage. If the enemy is Vulnerable, hit twice."),
                              card("Molten Fist", "Attack", "Deal 10 damage. Double the enemy's Vulnerable.")])

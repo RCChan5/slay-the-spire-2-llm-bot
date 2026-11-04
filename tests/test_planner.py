@@ -106,5 +106,10 @@ inf.effects = effects_for("Infection", "Unplayable. At the end of your turn, if 
 c = Combat(20, 80, 0, 1, 3, 2, hand(S, D) + [inf], [Enemy(30, 30, 0.75, 0.7, 0, 1, intent_attack=False)])
 check("end-of-turn status damage is blocked", [c.hand[a.card].name for a in plan_turn(c).actions], ["Defend"])
 
+# Two ways to stop 5 damage: Defend (5 for 1) or a 2-energy 8-block card. Take the efficient one.
+WALL = ("Clunky Wall", 2, "Gain 8 Block.", "Skill")
+c = Combat(60, 80, 0, 2, 3, 2, hand(WALL, D), [Enemy(30, 30, 0.75, 0.7, 5, 1)])
+check("cheapest block that stops the hit", [c.hand[a.card].name for a in plan_turn(c).actions], ["Defend"])
+
 print(f"test_planner: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
