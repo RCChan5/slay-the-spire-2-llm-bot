@@ -81,6 +81,13 @@ def fight_prompt(c: Combat, options: list[Plan], names: list[str], relics: list[
     rules = learned_rules()
     if rules:
         lines += ["", "Rules learned from past runs (follow them):"] + [f"- {r}" for r in rules]
+    for p in options if incoming else []:
+        d = describe(c, p)
+        m = re.search(r"kill (\d+), take (\d+) of", d)
+        if m and int(m.group(1)) > 0 and int(m.group(2)) < incoming:
+            lines += ["", f"A kill this turn stops attacks: '{d}' takes {m.group(2)} instead of {incoming}. "
+                          "Prefer the kill over blocking (rule 1)."]
+            break
     lines += ["", "Simulator's best orders:"]
     for k, p in enumerate(options[:4], 1):
         lines.append(f"{k}. {describe(c, p)}")

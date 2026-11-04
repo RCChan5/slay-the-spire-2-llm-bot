@@ -325,9 +325,15 @@ def write_rules(rules: list[str]) -> None:
 
 
 def review_last_run(deck: list[str] | None = None, build: str = "", won: bool | None = None,
-                    say=print) -> bool:
-    """The whole step: story, review, lessons file, rules file. True if lessons were written."""
-    run = last_run(load_records())
+                    say=print, previous: bool = False) -> bool:
+    """The whole step: story, review, lessons file, rules file. True if lessons were written.
+    previous=True reviews the run before the newest start (a new run already began)."""
+    records = load_records()
+    if previous:
+        starts = [i for i, r in enumerate(records) if r.get("kind") == "new_run"]
+        if starts:
+            records = records[:starts[-1]]
+    run = last_run(records)
     if not run:
         say("review: no run found in the logs")
         return False

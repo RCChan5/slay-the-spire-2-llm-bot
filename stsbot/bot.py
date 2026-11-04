@@ -741,6 +741,7 @@ class Bot:
             self.runs_started += 1
             if str(asc).isdigit():
                 self.state.ascension = int(asc)
+            self.review_unreviewed()
             self.state.new_run()  # a new deck from the start, not only when the floor number drops
             self.say(f"  new run: tracked deck reset to the starter deck ({len(self.state.deck.cards)} cards)")
             self.log(kind="new_run", ascension=asc)
@@ -767,6 +768,20 @@ class Bot:
                 time.sleep(1.5)
             return True
         return None
+
+    def review_unreviewed(self, previous: bool = False):
+        """The last run ended without its review (the game-over screen was not recognised, or the user
+        clicked through it): review it now, before its deck and build are reset."""
+        if not self.use_llm or self.state.reviewed or self.state.floor < 2:
+            return
+        self.state.reviewed = True
+        self.state.save()
+        self.say(f"review: the run that ended on floor {self.state.floor} was not reviewed yet; reviewing it now")
+        try:
+            review_last_run([d.name for d in self.state.deck.cards], self.state.build, None, say=self.say,
+                            previous=previous)
+        except Exception as e:  # a failed review never stops the bot
+            self.say(f"review failed: {e}")
 
     def neow_step(self, img, W, H) -> bool:
         """Neow's starting choice. Its text is white on bright blue: read once as it is (keeps the coloured
@@ -1244,6 +1259,12 @@ class Bot:
         if kind != self.last_summary:
             self.say(f"screen: {kind}" + ("" if kind in ("enemy_turn",) else " (not handled yet; waiting)"))
             self.last_summary = kind
+            if kind == "unknown":
+                (ROOT / "shots").mkdir(exist_ok=True)
+                name = time.strftime("unknown_%Y%m%d_%H%M%S.png")
+                cv2.imwrite(str(ROOT / "shots" / name), img)
+                self.say(f"  saved shots/{name} (to teach this screen)")
+                self.log(kind="unknown_screen", shot=name, text=" ".join(l.text for l in lines)[:300])
         if self.play and kind not in ("enemy_turn", "unknown") and time.time() - self.idle_since > 20:
             self.say("this screen needs you; stopping")
             return True
