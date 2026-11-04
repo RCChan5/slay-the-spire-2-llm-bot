@@ -33,6 +33,24 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
    Put your own ratings in `data/card_ratings.json` (`{"Card Name": 8.5}`, same scale; basics are about
    3) to override cards it misjudges.
 
+9. **Map** (`stsbot/mapread.py`, `stsbot/route.py`): room icons are found by matching the legend's own
+   icons on the map (types: unknown, merchant, treasure, rest, enemy, elite); reachable rooms are the ones
+   drawn dark, visited ones carry an ink ring, and paths are the dotted lines between rooms in neighboring
+   rows. Every path through the visible map is simulated room by room (HP after each fight, Burning Blood,
+   rest heals of 30%, gold) and scored:
+   - fights cost HP according to the deck built so far (quality versus the starter deck, AoE, block,
+     Strength and powers), each fight's chance of killing the run, and the lowest HP along the way;
+   - elites are worth a guaranteed relic but cost about three hallway fights of HP; with an unimproved
+     starter deck in the first floors they cost more (take two or three normal fights first);
+   - rests heal when HP is under 55%, otherwise they are an upgrade;
+   - shops count when gold covers a card removal and there are basics or a curse to cut.
+
+   Ascension levels change the weights (A1 to A10 are cumulative): A3 less gold, A4 one fewer potion
+   slot, A5 Ascender's Bane in the starting deck (tracked, and removal worth more), A6 removal costs 100,
+   A7 fewer rares (relics worth more), A8 and A9 tougher and deadlier enemies (fights cost more, elites
+   need a stronger deck), A10 two Act 3 bosses (HP matters more late in Act 3). The ascension number is
+   read from the character badge on the top bar.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -54,6 +72,7 @@ Every decision is logged to `logs/YYYYMMDD.jsonl` (state, plan, score, card text
 ```
 C:\SAS\.venv\Scripts\python -m tests.test_planner   # made-up states, no game needed
 C:\SAS\.venv\Scripts\python -m tests.test_draft     # card reward choices, no game needed
+C:\SAS\.venv\Scripts\python -m tests.test_route     # route choices (made-up maps + saved map shots)
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 
@@ -66,5 +85,7 @@ prints every OCR line with its position, `python -m tools.poke click 0.5 0.5 nam
   skipping, Proceed buttons. Played live: three fights won, Pommel Strike, Fight Me! and Battle Trance
   picked. A card the game sends back (a missed drop) is retried at other drop points, then left out for
   the turn, so a turn can never loop.
-- Next: map routes (node icons from the legend), events (local Qwen3-VL for choices that need judgment),
-  rest sites, shops, card upgrade and removal screens, potions.
+- Map routing done (read checked on four saved maps and the live map; the first live click was stopped
+  because the game was not the window in front).
+- Next: shops (the route already plans removals), rest sites (heal or upgrade), events (local Qwen3-VL
+  for choices that need judgment), card upgrade and removal screens, potions.

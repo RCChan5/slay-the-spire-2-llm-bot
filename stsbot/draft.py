@@ -24,7 +24,8 @@ RATINGS = ROOT / "data" / "card_ratings.json"
 BASICS = {"Strike", "Defend"}
 STARTER = {"Ironclad": ["Strike"] * 5 + ["Defend"] * 4 + ["Bash"]}
 STARTER_TEXT = {"Strike": ("Attack", "Deal 6 damage."), "Defend": ("Skill", "Gain 5 Block."),
-                "Bash": ("Attack", "Deal 8 damage. Apply 2 Vulnerable.")}
+                "Bash": ("Attack", "Deal 8 damage. Apply 2 Vulnerable."),
+                "Ascender's Bane": ("Curse", "Unplayable. Ethereal.")}
 
 # Build directions and the words that mark a card as part of one.
 TAGS = {
@@ -51,8 +52,10 @@ class Deck:
     cards: list[DeckCard] = field(default_factory=list)
 
     @classmethod
-    def starter(cls, character: str = "Ironclad") -> "Deck":
-        return cls([DeckCard(n, *STARTER_TEXT[n], cost=2 if n == "Bash" else 1) for n in STARTER[character]])
+    def starter(cls, character: str = "Ironclad", ascension: int = 0) -> "Deck":
+        names = STARTER[character] + (["Ascender's Bane"] if ascension >= 5 else [])  # A5 adds the curse
+        return cls([DeckCard(n, *STARTER_TEXT[n], cost={"Bash": 2, "Ascender's Bane": None}.get(n, 1))
+                    for n in names])
 
     def count(self, pred) -> int:
         return sum(1 for c in self.cards if pred(c))

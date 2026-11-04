@@ -26,6 +26,7 @@ class TopBar:
     gold: int | None = None
     floor: int | None = None
     deck_count: int | None = None
+    ascension: int | None = None
 
 
 def read_top_bar(lines: list[Line], W: int, H: int) -> TopBar:
@@ -39,7 +40,9 @@ def read_top_bar(lines: list[Line], W: int, H: int) -> TopBar:
         if m and cx < 0.2:
             t.hp, t.max_hp = int(m.group(1)), int(m.group(2))
         elif re.match(r"^\d{1,4}$", txt):
-            if 0.17 < cx < 0.26:
+            if cx < 0.05:
+                t.ascension = int(txt)  # the number on the character badge
+            elif 0.17 < cx < 0.26:
                 t.gold = int(txt)
             elif 0.42 < cx < 0.46:
                 t.floor = int(txt)
@@ -53,26 +56,37 @@ class Run:
     character: str = "Ironclad"
     floor: int = 0
     deck: Deck = field(default_factory=Deck.starter)
+    ascension: int = 0
+    hp: int = 0
+    max_hp: int = 0
+    gold: int = 0
 
     def save(self):
         RUN_FILE.parent.mkdir(exist_ok=True)
-        RUN_FILE.write_text(json.dumps({"character": self.character, "floor": self.floor,
+        RUN_FILE.write_text(json.dumps({"character": self.character, "floor": self.floor, "ascension": self.ascension,
                                         "deck": self.deck.to_json()}, indent=1), encoding="utf-8")
 
     @classmethod
     def load(cls) -> "Run":
         try:
             d = json.loads(RUN_FILE.read_text(encoding="utf-8"))
-            return cls(d["character"], d["floor"], Deck.from_json(d["deck"]))
+            return cls(d["character"], d["floor"], Deck.from_json(d["deck"]), d.get("ascension", 0))
         except (OSError, ValueError, KeyError):
             return cls()
 
     def see(self, bar: TopBar) -> str | None:
         """Update from the top bar. Returns a note when something looks off (new run, deck mismatch)."""
         note = None
+        if bar.hp is not None:
+            self.hp, self.max_hp = bar.hp, bar.max_hp
+        if bar.gold is not None:
+            self.gold = bar.gold
+        if bar.ascension is not None and bar.ascension != self.ascension:
+            self.ascension = bar.ascension
+            self.save()
         if bar.floor is not None:
             if bar.floor < self.floor:
-                self.deck = Deck.starter(self.character)
+                self.deck = Deck.starter(self.character, self.ascension)
                 note = f"new run (floor {bar.floor} after {self.floor}); deck reset to the starter deck"
             if bar.floor != self.floor:
                 self.floor = bar.floor

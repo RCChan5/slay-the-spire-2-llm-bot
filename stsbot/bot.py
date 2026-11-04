@@ -27,7 +27,9 @@ from . import inputs
 from .cards import effects_for
 from .ocr import Ocr
 from .draft import choose
+from .mapread import read_map
 from .planner import describe, plan_turn
+from .route import RunInfo, choose_room
 from .run import Run, read_top_bar
 from .screen import (DIGITS, FRAC, Card, Combat, assign_intents, join_text, parse_intent_tooltip,
                      read_card_choice, read_combat, screen_kind)
@@ -59,6 +61,7 @@ class Bot:
         self.state = Run.load()
         self.last_note = None
         self.loot_clicks: dict[str, int] = {}
+        self.map_tries = 0
         self.statuses = StatusBook()
         self.intent_cache: dict[tuple, tuple[bool, int, int]] = {}
         self.blocked: set[tuple[int, str]] = set()  # (turn, card) the game would not let it play
@@ -345,6 +348,34 @@ class Bot:
         time.sleep(1.0)
         return True
 
+    # ---------- map
+    def map_step(self, img, lines, W, H) -> bool:
+        m = read_map(img)
+        s = self.state
+        if s.floor == 0 or not s.hp:
+            return False
+        info = RunInfo(s.hp, s.max_hp, s.gold, s.floor, s.ascension)
+        ch = choose_room(m, info, s.deck)
+        reach = [f"{m.rooms[i].kind}" for i, r in enumerate(m.rooms) if r.reachable]
+        self.say(f"map: {len(m.rooms)} rooms, reachable {reach}; HP {s.hp}/{s.max_hp}, gold {s.gold}, "
+                 f"floor {s.floor}, A{s.ascension}, deck {len(s.deck.cards)}")
+        self.say("  route: " + ch.why)
+        self.log(kind="map", reachable=reach, choice=None if ch.room is None else m.rooms[ch.room].kind,
+                 why=ch.why, score=round(ch.score, 2), play=self.play)
+        if not self.play or ch.room is None:
+            return False
+        if self.map_tries >= 3:
+            self.say("  clicked the map 3 times without leaving it; stopping so you can look")
+            raise UserTookOver("map click had no effect")
+        r = m.rooms[ch.room]
+        self.guard()
+        inputs.click(self.win, r.x, r.y)
+        self.remember_pointer()
+        self.move(*REST)
+        self.map_tries += 1
+        time.sleep(1.5)
+        return True
+
     # ---------- main loop
     def run(self):
         self.win = find_game()
@@ -367,7 +398,13 @@ class Bot:
                 img = self.settled_frame()
                 lines, W, H = self.read(img)
                 kind = screen_kind(lines, W, H)
-                note = self.state.see(read_top_bar(lines, W, H))
+                bar = read_top_bar(lines, W, H)
+                if bar.floor is None:  # the floor number is small: read it again larger
+                    got = [t for t, fx, fy in self.crop_read(img, 0.42, 0.47, 0.0, 0.065, 2.0) if DIGITS.match(t)]
+                    bar.floor = int(got[0]) if got else None
+                note = self.state.see(bar)
+                if kind != "map":
+                    self.map_tries = 0
                 if note and note != self.last_note:
                     self.say("note: " + note)
                     self.log(kind="note", note=note)
@@ -397,6 +434,14 @@ class Bot:
                             last_summary = s
                             self.combat_step(img, lines, W, H)
                         time.sleep(0.5)
+                    continue
+                if kind == "map":
+                    sig = f"map|{self.state.floor}|{self.state.hp}"
+                    if self.play or sig != last_summary:
+                        last_summary = sig
+                        if self.map_step(img, lines, W, H):
+                            idle_since = time.time()
+                    time.sleep(0.5)
                     continue
                 if kind == "proceed" and self.play:
                     btn = next((l for l in lines if l.text.strip().lower() == "proceed"), None)
