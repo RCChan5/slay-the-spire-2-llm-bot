@@ -45,6 +45,14 @@ def _num(pattern: str, text: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+def _debuff(n: int) -> int:
+    """Debuff stacks on cards are small; OCR sometimes doubles a digit ("Apply 11 Vulnerable" for 1)."""
+    if n > 6:
+        s = str(n)
+        return int(s[0]) if len(set(s)) == 1 else min(n, 6)
+    return n
+
+
 def clean(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     # Common OCR slips on the game's serif font.
@@ -59,8 +67,8 @@ def parse(text: str, kind: str = "") -> Effects:
     e.hits = _num(r"(\d+)\s*times", t) or (2 if re.search(r"damage twice", t, re.I) else 1)
     e.all_enemies = bool(re.search(r"ALL enem", t, re.I))
     e.block = _num(r"Gain\s*(\d+)\s*Block", t)
-    e.vulnerable = _num(r"Apply\s*(\d+)\s*Vulnerable", t)
-    e.weak = _num(r"Apply\s*(\d+)\s*Weak", t)
+    e.vulnerable = _debuff(_num(r"Apply\s*(\d+)\s*Vulnerable", t))
+    e.weak = _debuff(_num(r"Apply\s*(\d+)\s*Weak", t))
     e.strength = _num(r"Gain\s*(\d+)\s*Strength", t)
     e.enemy_strength = _num(r"enem\w* gains?\s*(\d+)\s*Strength", t)
     e.draw = _num(r"Draw\s*(\d+)\s*card", t) or (1 if re.search(r"Draw a card", t, re.I) else 0)

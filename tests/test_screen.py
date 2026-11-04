@@ -18,6 +18,13 @@ CASES = {
                              enemies=[(31, 39)]),
     "map1b.png": dict(kind="map"),
     "first.png": dict(kind="main_menu"),
+    "now1.png": dict(kind="main_menu"),  # with Continue
+    "menu2.png": dict(kind="mode_select"),
+    "charsel.png": dict(kind="char_select"),
+    "run1b.png": dict(kind="neow"),
+    "neow3.png": dict(kind="proceed"),
+    "cards1.png": dict(kind="card_choice"),
+    "reward1.png": dict(kind="loot"),
 }
 
 ocr = Ocr()
@@ -55,6 +62,20 @@ for shot, want in CASES.items():
     if "costs" in want:
         check(shot, "costs", [x.cost for x in c.hand], want["costs"])
     check(shot, "enemies", [(e.hp, e.max_hp) for e in c.enemies], want["enemies"])
+
+# Event options (the layout events use: option boxes on the right, gold title over effect text).
+from stsbot.events import best_option, read_options  # noqa: E402
+
+for shot, want in {"menuX.png": "Nab the Map", "ev1b.png": "Share Knowledge"}.items():
+    p = SHOTS / shot
+    if not p.exists():
+        print(f"skip {shot} (not saved)")
+        continue
+    img = cv2.imread(str(p))
+    H, W = img.shape[:2]
+    opts = read_options(ocr.read(img), W, H, (0.47, 0.92, 0.53, 0.95))
+    i, _ = best_option(opts, 56, 80)
+    check(shot, "event pick", opts[i].title if i is not None else None, want)
 
 print(f"test_screen: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

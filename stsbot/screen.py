@@ -112,8 +112,18 @@ def screen_kind(lines: list[Line], W: int, H: int) -> str:
         return "loot"
     if "legend" in texts and "unknown" in texts:
         return "map"
-    if "singleplayer" in texts and "compendium" in texts:
+    if "compendium" in texts and ("singleplayer" in texts or "continue" in texts):
         return "main_menu"
+    if "standard" in texts and "daily" in texts and "custom" in texts:
+        return "mode_select"
+    words = {l.text.strip().lower() for l in lines}
+    if words & {"ironclad", "silent", "defect", "regent", "necrobinder", "the ironclad", "the silent",
+                "the defect", "the regent", "the necrobinder"}:  # the big name, read as one or two lines
+        return "char_select"
+    if re.search(r"\b(defeat|victory|game over|you died|slain)\b", texts):
+        return "game_over"
+    if "neow" in texts and not re.search(r"\bproceed\b", texts):
+        return "neow"
     if re.search(r"\breward", texts):
         return "reward"
     if re.search(r"\bproceed\b", texts):

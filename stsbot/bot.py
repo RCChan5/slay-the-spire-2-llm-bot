@@ -31,6 +31,8 @@ from .mapread import read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
+from .events import best_option, read_options
+from .ocr import Line
 from .route import RunInfo, choose_room
 from .run import Run, read_top_bar
 from .screen import (DIGITS, FRAC, Card, Combat, assign_intents, join_text, parse_intent_tooltip,
@@ -43,6 +45,11 @@ LOGS = ROOT / "logs"
 END_TURN = (0.892, 0.825)
 LOOT_PROCEED = (0.89, 0.76)
 CHOICE_SKIP = (0.5, 0.85)
+CHAR_CONFIRM = (0.955, 0.72)  # the check mark on the character screen
+IRONCLAD_PORTRAIT = (0.347, 0.875)
+NEOW_REGION = (0.24, 0.8, 0.68, 0.97)
+EVENT_REGION = (0.47, 0.92, 0.53, 0.95)  # event option boxes, right half
+GAME_OVER_BUTTONS = ("continue", "main menu", "return", "proceed", "done", "ok", "menu")
 REST = (0.5, 0.3)  # where the pointer waits, away from cards and tooltips
 KIND_WORDS = {"attack": "Attack", "skill": "Skill", "power": "Power", "curse": "Curse", "status": "Status"}
 
@@ -56,8 +63,11 @@ class Stuck(Exception):
 
 
 class Bot:
-    def __init__(self, play: bool, max_turns: int | None = None, resume: bool = True, still_secs: float = 5.0):
+    def __init__(self, play: bool, max_turns: int | None = None, resume: bool = True, still_secs: float = 5.0,
+                 max_runs: int | None = None):
         self.play = play
+        self.max_runs = max_runs
+        self.runs_started = 0
         self.resume = resume
         self.still_secs = still_secs
         self.max_turns = max_turns
@@ -460,6 +470,114 @@ class Bot:
         time.sleep(1.5)
         return True
 
+    # ---------- menus, new runs, Neow
+    def click_line(self, lines, W, H, words) -> str | None:
+        """Click the first line whose text is one of words (lower case). Returns what was clicked."""
+        for w in words:
+            for l in lines:
+                if l.text.strip().lower() == w:
+                    self.guard()
+                    inputs.click(self.win, l.center[0] / W, l.center[1] / H)
+                    self.remember_pointer()
+                    self.move(*REST)
+                    time.sleep(1.2)
+                    return l.text.strip()
+        return None
+
+    def menu_step(self, kind, img, lines, W, H) -> bool | None:
+        """Main menu, mode, character and game-over screens. None if this is not such a screen."""
+        if kind == "main_menu":
+            if any(l.text.strip().lower() == "continue" for l in lines):
+                self.say("main menu: continuing the saved run")
+                self.click_line(lines, W, H, ["continue"])
+                return True
+            if self.max_runs is not None and self.runs_started >= self.max_runs:
+                self.say(f"started {self.runs_started} run(s); stopping as asked")
+                return False
+            self.say("main menu: starting a new run")
+            self.click_line(lines, W, H, ["singleplayer"])
+            return True
+        if kind == "mode_select":
+            self.say("mode: Standard")
+            self.click_line(lines, W, H, ["standard"])
+            return True
+        if kind == "char_select":
+            if not any("ironclad" in l.text.lower() for l in lines):
+                self.say("character: switching to the Ironclad (the only one the bot knows)")
+                self.guard()
+                inputs.click(self.win, *IRONCLAD_PORTRAIT)
+                self.remember_pointer()
+                time.sleep(1.0)
+                return True
+            asc = next((l.text for l in lines if 0.33 < l.center[0] / W < 0.4 and 0.7 < l.center[1] / H < 0.8
+                        and DIGITS.match(l.text.strip())), "?")
+            self.say(f"character: the Ironclad, ascension {asc} as selected in the game; embarking")
+            self.guard()
+            inputs.click(self.win, *CHAR_CONFIRM)
+            self.remember_pointer()
+            self.move(*REST)
+            self.runs_started += 1
+            self.log(kind="new_run", ascension=asc)
+            time.sleep(2.5)
+            return True
+        if kind == "game_over":
+            text = " ".join(l.text for l in lines)
+            self.say(f"game over screen: {text[:120]}")
+            self.log(kind="game_over", floor=self.state.floor, hp=self.state.hp, deck=len(self.state.deck.cards))
+            if self.click_line(lines, W, H, list(GAME_OVER_BUTTONS)) is None:
+                self.guard()
+                inputs.click(self.win, 0.5, 0.9)  # most game-over screens go on with a click
+                self.remember_pointer()
+                time.sleep(1.5)
+            return True
+        return None
+
+    def neow_step(self, img, W, H) -> bool:
+        """Neow's starting choice: options re-read at 2x (the bright background confuses the full read)."""
+        x0, x1, y0, y1 = NEOW_REGION
+        crop = img[int(y0 * H):int(y1 * H), int(x0 * W):int(x1 * W)]
+        lines = [Line(l.text, (l.box[0] + int(x0 * W), l.box[1] + int(y0 * H), l.box[2], l.box[3]), l.confidence)
+                 for l in self.ocr.read(crop, scale=2.0)]
+        opts = read_options(lines, W, H, NEOW_REGION)
+        if not opts:
+            return False
+        i, vals = best_option(opts, self.state.hp or 1, self.state.max_hp or 1)
+        for o, (v, why) in zip(opts, vals):
+            self.say(f"  Neow: {o.title}: {o.text} => {v} {why}")
+        self.say(f"  Neow: take {opts[i].title}")
+        self.log(kind="neow", options=[f"{o.title}: {o.text}" for o in opts], values=[v for v, _ in vals],
+                 pick=opts[i].title, play=self.play)
+        if not self.play:
+            return False
+        self.guard()
+        inputs.click(self.win, opts[i].x, opts[i].y)
+        self.remember_pointer()
+        self.move(*REST)
+        time.sleep(1.5)
+        return True
+
+    def event_step(self, lines, W, H) -> bool | None:
+        """An event: option boxes on the right. None if this screen has none."""
+        opts = read_options(lines, W, H, EVENT_REGION)
+        if not opts:
+            return None
+        title = next((l.text for l in sorted(lines, key=lambda l: l.center[1])
+                      if 0.5 < l.center[0] / W < 0.9 and 0.15 < l.center[1] / H < 0.3), "event")
+        i, vals = best_option(opts, self.state.hp or 1, self.state.max_hp or 1)
+        for o, (v, why) in zip(opts, vals):
+            self.say(f"  event {title}: {o.title}: {o.text} => {v} {why}")
+        self.say(f"  event: take {opts[i].title}")
+        self.log(kind="event", title=title, options=[f"{o.title}: {o.text}" for o in opts],
+                 values=[v for v, _ in vals], pick=opts[i].title, play=self.play)
+        if not self.play:
+            return False
+        self.guard()
+        inputs.click(self.win, opts[i].x, opts[i].y)
+        self.remember_pointer()
+        self.move(*REST)
+        time.sleep(1.5)
+        return True
+
     # ---------- main loop
     def run(self):
         self.win = find_game()
@@ -508,6 +626,26 @@ class Bot:
             self.say("note: " + note)
             self.log(kind="note", note=note)
             self.last_note = note
+        if kind in ("main_menu", "mode_select", "char_select", "game_over"):
+            if not self.play:
+                if kind != self.last_summary:
+                    self.say(f"screen: {kind}")
+                    self.last_summary = kind
+                time.sleep(0.6)
+                return False
+            acted = self.menu_step(kind, img, lines, W, H)
+            if acted is False:
+                return True
+            self.idle_since = time.time()
+            return False
+        if kind == "neow":
+            sig = "neow|" + str(self.state.floor)
+            if self.play or sig != self.last_summary:
+                self.last_summary = sig
+                if self.neow_step(img, W, H):
+                    self.idle_since = time.time()
+            time.sleep(0.5)
+            return False
         if kind in ("loot", "card_choice"):
             # OCR of the same screen varies a little between frames; compare what matters only.
             if kind == "card_choice":
@@ -552,6 +690,14 @@ class Bot:
                 self.move(*REST)
                 time.sleep(1.0)
                 return False
+        if kind == "unknown":
+            sig = "event|" + "|".join(sorted(o.title for o in read_options(lines, W, H, EVENT_REGION)))
+            if sig != "event|" and (self.play or sig != self.last_summary):
+                self.last_summary = sig
+                if self.event_step(lines, W, H):
+                    self.idle_since = time.time()
+                time.sleep(0.5)
+                return False
         if kind != self.last_summary:
             self.say(f"screen: {kind}" + ("" if kind in ("enemy_turn",) else " (not handled yet; waiting)"))
             self.last_summary = kind
@@ -569,5 +715,7 @@ def main(argv=None):
     ap.add_argument("--no-resume", action="store_true",
                     help="stop for good when you move the mouse (default: pause, resume once it is still)")
     ap.add_argument("--still", type=float, default=5.0, help="seconds of a still mouse before resuming")
+    ap.add_argument("--runs", type=int, default=None, help="start at most this many new runs (default: keep going)")
     args = ap.parse_args(argv)
-    Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still).run()
+    Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still,
+        max_runs=args.runs).run()

@@ -74,6 +74,13 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     and cards covering the build's needs +1.5. Before committing it leans toward the two leading builds. The
     build is shown on every card choice and map line. Your own ratings in `data/card_ratings.json` still win.
 
+12. **New runs, Neow and events** (`stsbot/events.py`): from the main menu the bot continues a saved run, or
+    starts a new one (Singleplayer, Standard, the Ironclad at the ascension selected in the game) and clicks
+    through the game-over screen after a death (`--runs N` stops after N new runs). Neow's starting choice
+    and every event (option boxes on the right: gold title over effect text) are read and scored the same
+    way: upgrades, removals, relics, free items, gold, max HP, healing and card choices count for an option;
+    curses and losing HP, max HP or gold count against it. One-button follow-up screens are clicked through.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
