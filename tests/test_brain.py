@@ -89,6 +89,14 @@ check("prompt has the deck summary", "deal damage" in brain.pick_prompt(offers, 
 check("fight prompt has the incoming damage", "Incoming damage this enemy turn: 17" in brain.fight_prompt(c, opts, [], []),
       True)
 
+answers[:] = [{"plan": [{"card": "Defend"}, {"card": "Strike", "target": 2}], "reason": "block then hit"}]
+ch = brain.decide_fight(c, opts, [], [], best)
+check("the rest of the LLM plan is kept", ch.rest, [("Strike", 1)])
+a = brain.next_queued(c, ch.rest[0])
+check("a queued play still legal is used", (c.hand[a.card].name, a.target), ("Strike", 1))
+check("a queued card no longer in hand asks again", brain.next_queued(c, ("Inflame", None)), None)
+check("new cards are named in the prompt", "Just drawn" in brain.fight_prompt(c, opts, [], [], ["Pommel Strike"]), True)
+
 llm.ask = real_ask
 if "--live" in sys.argv:
     c, opts, best = fight()

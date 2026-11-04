@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import difflib
+from collections import Counter
 
 import cv2
 import numpy as np
@@ -33,7 +34,7 @@ from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from . import context as cx
 from . import llm
-from .brain import decide_fight, decide_pick
+from .brain import FightChoice, decide_fight, decide_pick, next_queued
 from .builds import deck_builds
 from .handpick import discard_pick, read_prompt, upgrade_pick
 from .deckview import DECK_ICON, clean_name, merge_pages, page_names
@@ -107,6 +108,7 @@ class Bot:
         self.prompt_tries = 0
         self.statuses = StatusBook()
         self.intent_cache: dict[tuple, tuple[bool, int, int]] = {}
+        self.fight_queue: dict | None = None  # the LLM's plan for this turn (see combat_step)
         self.blocked: set[tuple[int, str]] = set()
         self.potion_cache: dict[tuple, object] = {}  # (turn, slot) -> Potion  # (turn, card) the game would not let it play
         LOGS.mkdir(exist_ok=True)
@@ -422,12 +424,34 @@ class Bot:
         self.pending_play = {c.hand[a.card].name for a in plan.actions[1:]}
         first = plan.actions[0] if plan.actions else None
         if self.use_llm:
-            names = self.enemy_names(c)
-            ch = decide_fight(c, options, names, [], plan)
+            # The LLM plans the whole turn once. While the hand is just the last hand minus the card played,
+            # its next play is used as is; a newly drawn card (or a plan that no longer fits) asks again,
+            # naming only the new cards.
+            hand_now = Counter(x.name.rstrip("+") for x in c.hand)
+            q = self.fight_queue
+            new_cards: list[str] = []
+            queued = None
+            if q and q["turn"] == c.turn:
+                new_cards = sorted((hand_now - q["expect"]).elements())
+                if not new_cards and q["rest"]:
+                    queued = next_queued(c, q["rest"][0])
+            if queued is not None:
+                ch = FightChoice(queued, "following the plan: " + q["reason"], "llm plan", q["rest"][1:])
+            else:
+                names = self.enemy_names(c)
+                ch = decide_fight(c, options, names, [], plan, new_cards)
             first = ch.action
+            if first is not None:
+                after = hand_now.copy()
+                after[c.hand[first.card].name.rstrip("+")] -= 1
+                self.fight_queue = {"turn": c.turn, "expect": +after, "rest": ch.rest,
+                                    "reason": ch.reason if queued is None else q["reason"]}
+            else:
+                self.fight_queue = None
             what = "end turn" if first is None else (c.hand[first.card].name + (
                 f" -> enemy {first.target + 1}" if first.target is not None else ""))
-            self.say(f"  {ch.source}: {what} ({ch.reason}) [{llm.last['seconds']:.1f}s]")
+            secs = "" if ch.source == "llm plan" else f" [{llm.last['seconds']:.1f}s]"
+            self.say(f"  {ch.source}: {what} ({ch.reason}){secs}")
             self.log(kind="llm_fight", choice=what, reason=ch.reason, source=ch.source,
                      seconds=round(llm.last["seconds"], 2), error=llm.last["error"])
         if first is not None:

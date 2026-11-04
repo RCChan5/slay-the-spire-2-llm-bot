@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import context as cx
 from . import llm
@@ -57,13 +57,15 @@ def _enemy_lines(c: Combat, names: list[str]) -> list[str]:
     return out
 
 
-def fight_prompt(c: Combat, options: list[Plan], names: list[str], relics: list[str]) -> str:
+def fight_prompt(c: Combat, options: list[Plan], names: list[str], relics: list[str], new_cards: list[str] = ()) -> str:
     incoming = sum(e.incoming for e in c.enemies if e.hp > 0)
     lines = [f"Turn {c.turn}. HP {c.hp}/{c.max_hp}, block {c.block}, energy {c.energy}/{c.max_energy}."
              + (f" Your statuses: {', '.join(f'{k} {v}' for k, v in c.statuses.items())}." if c.statuses else ""),
              f"Incoming damage this enemy turn: {incoming}.", "", "Hand:"]
     for card in c.hand:
         lines.append(f"- {cx.card_line(card.name)}" + (f" (cost read on screen: {card.cost})" if card.cost is not None else ""))
+    if new_cards:
+        lines.append(f"Just drawn (new since your last plan): {', '.join(new_cards)}. Re-plan the order with them.")
     lines += ["", "Enemies:"] + _enemy_lines(c, names)
     if relics:
         lines += ["", "Relics: " + "; ".join(cx.relic_line(r) or r for r in relics)]
@@ -78,6 +80,7 @@ class FightChoice:
     action: Action | None  # None: end the turn
     reason: str
     source: str  # "llm" or "simulator"
+    rest: list = field(default_factory=list)  # the LLM's later plays this turn: [(card name, target 0-based or None)]
 
 
 def _match_card(name: str, c: Combat, energy: int) -> int | None:
@@ -96,8 +99,21 @@ def _match_card(name: str, c: Combat, energy: int) -> int | None:
     return i
 
 
-def decide_fight(c: Combat, options: list[Plan], names: list[str], relics: list[str], fallback: Plan) -> FightChoice:
-    user = fight_prompt(c, options, names, relics)
+def _rest(plan) -> list:
+    out = []
+    for step in plan[1:]:
+        if isinstance(step, dict) and step.get("card"):
+            try:
+                t = int(step.get("target")) - 1
+            except (TypeError, ValueError):
+                t = None
+            out.append((str(step["card"]), t))
+    return out
+
+
+def decide_fight(c: Combat, options: list[Plan], names: list[str], relics: list[str], fallback: Plan,
+                 new_cards: list[str] = ()) -> FightChoice:
+    user = fight_prompt(c, options, names, relics, new_cards)
     for attempt in range(2):
         ans = llm.ask(FIGHT_SYSTEM, user)
         if not isinstance(ans, dict):
@@ -120,7 +136,7 @@ def decide_fight(c: Combat, options: list[Plan], names: list[str], relics: list[
                         t = -1
                     if t not in alive:
                         t = min(alive, key=lambda j: c.enemies[j].hp)  # a bad target: the weakest living enemy
-                return FightChoice(Action(i, t), reason, "llm")
+                return FightChoice(Action(i, t), reason, "llm", _rest(plan))
         user += ("\n\nYour last answer was not a legal play (card not in hand, too expensive, or unplayable). "
                  "Choose again from the hand above.")
     a = fallback.actions[0] if fallback.actions else None
@@ -192,3 +208,19 @@ def decide_pick(offers, deck, floor: int, build: str, committed_at: int | None, 
             if m:
                 return PickChoice(names.index(m[0]), new_build, reason, "llm")
     return PickChoice(fallback_pick, build, "rules (the LLM gave no usable answer)", "rules")
+
+
+def next_queued(c: Combat, queued: tuple) -> Action | None:
+    """The next play of the LLM's plan, if it is still legal in this hand (else None: ask again)."""
+    name, t = queued
+    i = _match_card(name, c, c.energy)
+    if i is None:
+        return None
+    e = c.hand[i].effects
+    alive = [j for j, en in enumerate(c.enemies) if en.hp > 0]
+    if e is not None and e.needs_target and alive:
+        if t not in alive:
+            t = min(alive, key=lambda j: c.enemies[j].hp)
+    else:
+        t = None
+    return Action(i, t)

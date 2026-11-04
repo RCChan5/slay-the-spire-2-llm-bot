@@ -144,6 +144,9 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
       and dealt. Its rules: avoid HP loss when attacks come, spend all energy and cards unless harmful,
       Powers and draw first, Vulnerable before attacks. An illegal answer (card not in hand, too
       expensive) is asked again; after two, or if Ollama does not answer, the simulator plays.
+      The LLM plans the whole turn at once and the bot follows that order card by card without asking
+      again. Only when a card is drawn (the hand has a card the last hand did not) is it asked again,
+      told which cards are new; card text is read by hovering only cards not yet read this turn.
     - Card picks: it leans toward a build early, commits by floor 4-6 using the guide's build rules
       (saved with the run, it then sticks), and skips off-build cards, watching the deck's counts of
       damage, block, AoE, draw and scaling to fill real gaps.
