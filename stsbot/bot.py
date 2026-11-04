@@ -467,7 +467,7 @@ class Bot:
             pic = pick_picture(s.drawn_images)
             if pic is not None:
                 self.say(f"map: a fresh map; drawing {pic.name}")
-                n = draw_on_map(self.win, inputs, pic, guard=self.guard)
+                n = draw_on_map(self.win, inputs, pic, guard=self.guard, after_stroke=self.remember_pointer)
                 self.remember_pointer()
                 s.drawn_images.append(pic.name)
                 s.drawn_floors.append(s.floor)

@@ -212,7 +212,7 @@ def preview(path: Path, out: Path, detail: bool = False) -> int:
     return len(strokes)
 
 
-def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = False, box=BOX) -> int:
+def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = False, box=BOX, after_stroke=None) -> int:
     """Draw the picture with right-button drags. Returns the number of strokes drawn.
 
     The default is the plain outline at the original pace (the user's choice: the shaded, faster version
@@ -222,6 +222,8 @@ def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = False, b
         if guard:
             guard()
         inputs_mod.polyline(win, [tuple(p) for p in st], right=True)  # the map draws on right-drag
+        if after_stroke:
+            after_stroke()  # tell the caller where the pointer is now, so its own strokes are not taken for a hand
     time.sleep(0.3)
     return len(strokes)
 
