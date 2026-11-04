@@ -29,6 +29,8 @@ BOX = (0.22, 0.12, 0.62, 0.66)  # where the picture goes: x0, y0, x1, y1 as frac
 MAX_OUTLINE = 160
 MAX_HATCH = 300
 MIN_LENGTH = 30  # px in the working picture: shorter lines are noise
+MAX_DRAW_STROKES = 100  # the outline and the flag always fit; inner lines fill the rest, longest first
+STROKE_PAUSE = 0.12  # seconds between strokes, so a multiplayer game has time to take each one
 INNER_MIN_LENGTH = 18  # inside the subject shorter lines are kept: eyes, mouth, fingers
 HATCH_SPACING = 9  # px between hatch lines
 MID_TONE, DARK_TONE = 115, 70  # grey levels: one direction of hatching below MID, crossed below DARK
@@ -168,7 +170,8 @@ def strokes_from_picture(path: Path, detail: bool = False) -> list[np.ndarray]:
     contours = sorted((c for c in contours if cv2.arcLength(c, False) >= INNER_MIN_LENGTH),
                       key=lambda c: -cv2.arcLength(c, False))
     inner = [cv2.approxPolyDP(c, 1.5, False).reshape(-1, 2).astype(np.float32) for c in contours[:MAX_OUTLINE]]
-    px_strokes = outline + [s for s in inner if len(s) >= 2]
+    inner = [s for s in inner if len(s) >= 2]
+    px_strokes = outline + inner
 
     # Shading: darker parts of the subject get hatching, the darkest crossed hatching.
     if detail:
@@ -181,10 +184,15 @@ def strokes_from_picture(path: Path, detail: bool = False) -> list[np.ndarray]:
         hatch.sort(key=lambda s: -float(np.hypot(*(s[1] - s[0]))))
         px_strokes += hatch[:MAX_HATCH]
 
-    out = [np.stack([s[:, 0] / W, s[:, 1] / H], axis=1) for s in px_strokes]
-    if "flag" in path.stem.lower():
-        out += flag_strokes(person, detail)
-    return out
+    def frac(strokes):
+        return [np.stack([s[:, 0] / W, s[:, 1] / H], axis=1) for s in strokes]
+
+    # Most important first, then capped: in multiplayer the game stopped taking strokes partway, and
+    # whatever is lost should be the least important (short inner lines), never the outline or the flag.
+    flag = flag_strokes(person, detail) if "flag" in path.stem.lower() else []
+    first = frac(outline) + flag
+    rest = frac([s for s in px_strokes if not any(s is o for o in outline)])
+    return first + rest[:max(0, MAX_DRAW_STROKES - len(first))]
 
 
 def _line(a, b, step=0.004):
@@ -288,6 +296,7 @@ def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = False, b
         inputs_mod.polyline(win, [tuple(p) for p in st], step_time=STEP_TIME, right=True)  # draws on right-drag
         if after_stroke:
             after_stroke()  # tell the caller where the pointer is now, so its own strokes are not taken for a hand
+        time.sleep(STROKE_PAUSE)
     time.sleep(0.3)
     return len(strokes)
 

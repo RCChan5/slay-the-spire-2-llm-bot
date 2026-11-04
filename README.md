@@ -109,7 +109,9 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     drawn first (leaving out where it runs off the photo), then the inner details (face, tie, hands) from
     edges found after smoothing away texture, with thresholds from the picture's own contrast. When the
     cut-out is small the whole picture is traced. Pictures with "flag" in the file name also get the flag
-    of Israel behind the person. `python -m stsbot.mapdraw --preview images/x.jpg` shows the strokes;
+    of Israel behind the person. Strokes go most important first (outline, flag, then inner lines longest
+    first), at most 100, with a short pause between them: in multiplayer the game stopped taking strokes
+    partway once, and whatever is lost should be minor detail. `python -m stsbot.mapdraw --preview images/x.jpg` shows the strokes;
     the dashboard has Draw now buttons; `--no-draw` turns drawings off. images/ and models/ are not
     committed to git.
 16. **Choosing from the hand** (`stsbot/handpick.py`): cards like Armaments (upgrade a card in hand) or
