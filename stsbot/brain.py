@@ -63,7 +63,10 @@ def fight_prompt(c: Combat, options: list[Plan], names: list[str], relics: list[
              + (f" Your statuses: {', '.join(f'{k} {v}' for k, v in c.statuses.items())}." if c.statuses else ""),
              f"Incoming damage this enemy turn: {incoming}.", "", "Hand:"]
     for card in c.hand:
-        lines.append(f"- {cx.card_line(card.name)}" + (f" (cost read on screen: {card.cost})" if card.cost is not None else ""))
+        line = cx.card_line(card.name)
+        if cx.card(card.name) is None and card.effects is not None and card.effects.text:
+            line = f"{card.name}: (not in the card list; its text read on screen) {card.effects.text}"
+        lines.append(f"- {line}" + (f" (cost read on screen: {card.cost})" if card.cost is not None else ""))
     if new_cards:
         lines.append(f"Just drawn (new since your last plan): {', '.join(new_cards)}. Re-plan the order with them.")
     lines += ["", "Enemies:"] + _enemy_lines(c, names)

@@ -386,7 +386,10 @@ class Bot:
             cleaned = clean_name(card.name)
             if cleaned != "Unknown card":
                 card.name = cleaned
-            if card.name not in known:
+            if cx.available():
+                card.name = cx.proper_name(card.name)
+            if card.name not in known and not (cx.available() and cx.card(card.name) and
+                                               cx.proper_name(card.name) == card.name):
                 match = difflib.get_close_matches(card.name, known, n=1, cutoff=0.75)
                 if match:
                     card.name = match[0]

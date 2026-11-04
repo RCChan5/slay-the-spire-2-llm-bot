@@ -58,6 +58,20 @@ def card(name: str) -> dict | None:
     return _find(_data()[0], name)
 
 
+def proper_name(name: str) -> str:
+    """The card's real name from an OCR read: "Body Slami" -> "Body Slam+" (the "+" is often read as t, i,
+    l, f or 1), "Forgotten Ritu" -> "Forgotten Ritual". Unknown names come back unchanged."""
+    name = name.strip()
+    table = _data()[0]
+    if _norm(name) in table:
+        c = table[_norm(name)]
+        return c["name"] + ("+" if name.endswith("+") else "")
+    if len(name) > 3 and name[-1] in "tilf1|" and _norm(name[:-1]) in table:
+        return table[_norm(name[:-1])]["name"] + "+"
+    c = card(name)
+    return c["name"] + ("+" if name.endswith("+") else "") if c else name
+
+
 def tier(name: str) -> str | None:
     c = card(name)
     return _data()[1].get(c["id"]) if c else None

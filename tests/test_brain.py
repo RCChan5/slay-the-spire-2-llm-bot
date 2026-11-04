@@ -97,6 +97,14 @@ check("a queued play still legal is used", (c.hand[a.card].name, a.target), ("St
 check("a queued card no longer in hand asks again", brain.next_queued(c, ("Inflame", None)), None)
 check("new cards are named in the prompt", "Just drawn" in brain.fight_prompt(c, opts, [], [], ["Pommel Strike"]), True)
 
+from stsbot import context as cx
+check("OCR '+' read as i is put right", cx.proper_name("Body Slami"), "Body Slam+")
+check("a clipped name is completed", cx.proper_name("Forgotten Ritu"), "Forgotten Ritual")
+check("a plain name stays", cx.proper_name("Strike"), "Strike")
+c.hand[0].name = "Midnight"
+c.hand[0].effects.text = "Gain 3 Strength."
+check("a card not in the list shows its screen text", "text read on screen" in brain.fight_prompt(c, opts, [], []), True)
+
 llm.ask = real_ask
 if "--live" in sys.argv:
     c, opts, best = fight()
