@@ -378,9 +378,12 @@ class Bot:
         c = read_combat(lines, W, H)
         if c is None:
             return False
-        # Names clipped by OCR ("Pommel Stril") are put right from the tracked deck.
+        # Names clipped by OCR ("Pommel Stril") are put right from the tracked deck, "+" read as "t" too.
         known = {d.name for d in self.state.deck.cards}
         for card in c.hand:
+            cleaned = clean_name(card.name)
+            if cleaned != "Unknown card":
+                card.name = cleaned
             if card.name not in known:
                 match = difflib.get_close_matches(card.name, known, n=1, cutoff=0.75)
                 if match:
