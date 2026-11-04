@@ -44,7 +44,7 @@ def read_top_bar(lines: list[Line], W: int, H: int) -> TopBar:
                 t.ascension = int(txt)  # the number on the character badge
             elif 0.17 < cx < 0.26:
                 t.gold = int(txt)
-            elif 0.42 < cx < 0.46:
+            elif 0.42 < cx < 0.5:  # one digit sits near 0.44, two digits near 0.48
                 t.floor = int(txt)
             elif 0.92 < cx < 0.95:
                 t.deck_count = int(txt)

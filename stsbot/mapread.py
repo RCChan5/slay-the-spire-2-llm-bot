@@ -152,3 +152,26 @@ def read_map(img: np.ndarray, min_path: float = 0.3) -> MapView:
     visited = [i for i, r in enumerate(rooms) if r.visited]
     current = min(visited, key=lambda i: rooms[i].y) if visited else None
     return MapView(rooms, rows, current)
+
+
+def boss_point(img: np.ndarray, region=(0.33, 0.67, 0.12, 0.6), min_share: float = 0.04) -> tuple[float, float] | None:
+    """The boss: the large dark drawing at the top of the map. Its centre, or None if there is none."""
+    H, W = img.shape[:2]
+    x0, x1, y0, y1 = region
+    g = _gray(img[int(y0 * H):int(y1 * H), int(x0 * W):int(x1 * W)])
+    dark = (g < 60).astype(np.uint8)
+    dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    n, labels, stats, cent = cv2.connectedComponentsWithStats(dark)
+    h, w = dark.shape
+    # The black background around the parchment touches the edges of the search area; the boss does not.
+    inner = [i for i in range(1, n) if stats[i, cv2.CC_STAT_TOP] > 0 and stats[i, cv2.CC_STAT_LEFT] > 0
+             and stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] < w
+             and stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT] < h]
+    # The boss drawing breaks into several dark pieces (wings, middle): take them together.
+    inner = [i for i in inner if stats[i, cv2.CC_STAT_AREA] > 0.003 * dark.size]
+    total = sum(stats[i, cv2.CC_STAT_AREA] for i in inner)
+    if total < min_share * dark.size:
+        return None
+    cx = sum(cent[i][0] * stats[i, cv2.CC_STAT_AREA] for i in inner) / total
+    cy = sum(cent[i][1] * stats[i, cv2.CC_STAT_AREA] for i in inner) / total
+    return x0 + cx / W, y0 + cy / H

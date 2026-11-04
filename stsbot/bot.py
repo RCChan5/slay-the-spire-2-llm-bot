@@ -28,7 +28,7 @@ from .cards import effects_for
 from .ocr import Ocr
 from .draft import choose
 from .mapdraw import IMAGES, draw_on_map, pick_picture
-from .mapread import read_map
+from .mapread import boss_point, read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
@@ -486,6 +486,18 @@ class Bot:
         self.say("  route: " + ch.why)
         self.log(kind="map", reachable=reach, choice=None if ch.room is None else m.rooms[ch.room].kind,
                  why=ch.why, score=round(ch.score, 2), play=self.play)
+        if ch.room is None and self.play:
+            boss = boss_point(img)
+            if boss is not None:
+                self.say("  no normal room ahead: going to the boss")
+                self.log(kind="map", choice="boss", play=self.play)
+                self.guard()
+                inputs.click(self.win, *boss)
+                self.remember_pointer()
+                self.move(*REST)
+                self.map_tries += 1
+                time.sleep(1.5)
+                return True
         if not self.play or ch.room is None:
             return False
         if self.map_tries >= 3:

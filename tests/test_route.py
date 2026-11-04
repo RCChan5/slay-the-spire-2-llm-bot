@@ -84,5 +84,16 @@ for name in ("mapA0.png", "map2.png", "ev3.png", "map1b.png"):
     ch = choose_room(m, RunInfo(55, 80, 120, 4, 2), starter)
     check(f"{name}: picks a reachable room", ch.room is not None and m.rooms[ch.room].reachable, True)
 
+# The boss: found on the map that leads to it, not on other screens.
+from stsbot.mapread import boss_point  # noqa: E402
+
+for name, want in (("stuckmap.png", True), ("mapA0.png", False), ("f2b.png", False)):
+    p = SHOTS / name
+    if p.exists():
+        b = boss_point(cv2.imread(str(p)))
+        check(f"{name}: boss found = {want}", b is not None, want)
+        if b is not None and want:
+            check(f"{name}: boss at the skull", abs(b[0] - 0.49) < 0.04 and 0.3 < b[1] < 0.5, True)
+
 print(f"test_route: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
