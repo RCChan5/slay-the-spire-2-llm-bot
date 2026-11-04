@@ -547,6 +547,10 @@ class Bot:
             self.remember_pointer()
             self.move(*REST)
             self.runs_started += 1
+            if str(asc).isdigit():
+                self.state.ascension = int(asc)
+            self.state.new_run()  # a new deck from the start, not only when the floor number drops
+            self.say(f"  new run: tracked deck reset to the starter deck ({len(self.state.deck.cards)} cards)")
             self.log(kind="new_run", ascension=asc)
             time.sleep(2.5)
             return True

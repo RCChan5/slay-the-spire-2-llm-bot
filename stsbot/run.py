@@ -102,6 +102,13 @@ class Run:
             note = f"deck count on screen is {bar.deck_count}, tracked deck has {len(self.deck.cards)}"
         return note
 
+    def new_run(self):
+        """A new run was started: starter deck, floor 0, nothing drawn yet."""
+        self.deck = Deck.starter(self.character, self.ascension)
+        self.floor = 0
+        self.drawn_images, self.drawn_floors = [], []
+        self.save()
+
     def add(self, name: str, kind: str, text: str, cost: int | None):
         self.deck.cards.append(DeckCard(name, kind, text, cost))
         self.save()
