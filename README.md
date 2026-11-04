@@ -123,6 +123,12 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
 18. **Treasure rooms**: after choosing a treasure on the map, the bot clicks the closed chest (the gold is
     added by itself), takes the relic on the "What's Inside?" screen, then clicks Proceed.
 
+19. **Dashboard** (`stsbot/dashboard.py`, double-click `StsBot Dashboard.cmd`): a page on this PC only
+    (http://localhost:8765) with the run (HP, floor, ascension, gold, deck, build), the bot's latest log,
+    Start and Stop, the settings it starts with (draw on each act's map, seconds of still mouse before
+    resuming, number of new runs), and the images folder with Draw now on each picture and Draw random.
+    Drawing stops a running bot, opens the map if needed, draws, closes the map, and starts the bot again.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:

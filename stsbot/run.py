@@ -67,6 +67,7 @@ class Run:
         RUN_FILE.parent.mkdir(exist_ok=True)
         RUN_FILE.write_text(json.dumps({"character": self.character, "floor": self.floor, "ascension": self.ascension,
                                         "drawn_images": self.drawn_images, "drawn_floors": self.drawn_floors,
+                                        "hp": self.hp, "max_hp": self.max_hp, "gold": self.gold,
                                         "deck": self.deck.to_json()}, indent=1), encoding="utf-8")
 
     @classmethod
@@ -76,6 +77,7 @@ class Run:
             r = cls(d["character"], d["floor"], Deck.from_json(d["deck"]), d.get("ascension", 0))
             r.drawn_images = d.get("drawn_images", [])
             r.drawn_floors = d.get("drawn_floors", [])
+            r.hp, r.max_hp, r.gold = d.get("hp", 0), d.get("max_hp", 0), d.get("gold", 0)
             return r
         except (OSError, ValueError, KeyError):
             return cls()
@@ -83,10 +85,13 @@ class Run:
     def see(self, bar: TopBar) -> str | None:
         """Update from the top bar. Returns a note when something looks off (new run, deck mismatch)."""
         note = None
+        before = (self.hp, self.max_hp, self.gold)
         if bar.hp is not None:
             self.hp, self.max_hp = bar.hp, bar.max_hp
         if bar.gold is not None:
             self.gold = bar.gold
+        if (self.hp, self.max_hp, self.gold) != before:
+            self.save()  # the dashboard shows them
         if bar.ascension is not None and bar.ascension != self.ascension:
             self.ascension = bar.ascension
             self.save()
