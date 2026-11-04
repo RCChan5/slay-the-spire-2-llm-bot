@@ -583,12 +583,25 @@ class Bot:
         return None
 
     def neow_step(self, img, W, H) -> bool:
-        """Neow's starting choice: options re-read at 2x (the bright background confuses the full read)."""
+        """Neow's starting choice. Its text is white on bright blue: read once as it is (keeps the coloured
+        keywords such as a red curse name) and once as black-on-white (keeps the spaces between words), and
+        score each option on both readings together."""
         x0, x1, y0, y1 = NEOW_REGION
         crop = img[int(y0 * H):int(y1 * H), int(x0 * W):int(x1 * W)]
-        lines = [Line(l.text, (l.box[0] + int(x0 * W), l.box[1] + int(y0 * H), l.box[2], l.box[3]), l.confidence)
-                 for l in self.ocr.read(crop, scale=2.0)]
-        opts = read_options(lines, W, H, NEOW_REGION)
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        white = cv2.cvtColor(255 - cv2.threshold(gray, 170, 255, cv2.THRESH_BINARY)[1], cv2.COLOR_GRAY2BGR)
+
+        def options_of(picture):
+            lines = [Line(l.text, (l.box[0] + int(x0 * W), l.box[1] + int(y0 * H), l.box[2], l.box[3]), l.confidence)
+                     for l in self.ocr.read(picture, scale=2.0)]
+            return read_options(lines, W, H, NEOW_REGION)
+
+        opts, opts_white = options_of(crop), options_of(white)
+        if len(opts_white) == len(opts):
+            for o, w in zip(opts, opts_white):
+                o.text = f"{w.text} | {o.text}"
+        (ROOT / "shots").mkdir(exist_ok=True)
+        cv2.imwrite(str(ROOT / "shots" / time.strftime("neow_%H%M%S.png")), img)
         if not opts:
             return False
         i, vals = best_option(opts, self.state.hp or 1, self.state.max_hp or 1)

@@ -110,5 +110,12 @@ if p.exists():
     i, _ = best_removal(grid, Deck.starter(), 2)
     check("remove1.png", "removal pick", grid[i].name if i is not None else None, "Injury")
 
+# Neow and event option scores (text as read).
+from stsbot.events import option_value  # noqa: E402
+
+two = option_value("Large Capsule Obtain 2 random Relics. Add an additional Strike and Defend to your Deck.", 64, 80)[0]
+paper = option_value("Lead Paperweight Choose 1 of 2 Colorless cards to add to your Deck.", 64, 80)[0]
+check("events", "2 relics beat a colourless card", two > paper, True)
+
 print(f"test_screen: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

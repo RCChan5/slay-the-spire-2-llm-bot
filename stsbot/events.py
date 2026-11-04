@@ -35,8 +35,13 @@ def option_value(text: str, hp: int, max_hp: int) -> tuple[float, list[str]]:
         v += 3.0; why.append("upgrade")
     if re.search(r"\bRemove", text):
         v += 4.0; why.append("card removal")
-    if re.search(r"\brelic\b", text, re.I):
+    relics = re.search(r"(\d+)\s*(random\s*)?relics\b", text, re.I)
+    if relics:
+        v += 4.0 * int(relics.group(1)); why.append(f"{relics.group(1)} relics")
+    elif re.search(r"\brelic\b", text, re.I):
         v += 4.0; why.append("relic")
+    if re.search(r"\badditional\s+(Strike|Defend)", text, re.I):
+        v -= 1.0; why.append("extra basic cards")
     if re.search(r"\bTransform", text):
         v += 1.5; why.append("transform")
     if re.search(r"Choose\s*\d+\s*of|card reward|add .*cards? to your Deck", text, re.I):
