@@ -52,13 +52,13 @@ def option_value(text: str, hp: int, max_hp: int) -> tuple[float, list[str]]:
     heal = num(r"Heal\s*(\d+)")
     if heal:
         v += min(heal, max_hp - hp) / 5; why.append(f"heal {heal}")
-    lose_hp = num(r"Lose\s*(\d+)\s*HP")
+    lose_hp = num(r"Lose\s*(\d+)\s*HP") or num(r"Take\s*(\d+)\s*damage")
     if lose_hp and not re.search(r"Lose\s*\d+\s*Max HP", text):
         v -= lose_hp / (3 if hp < 0.5 * max_hp else 5); why.append(f"-{lose_hp} HP")
     lose_mhp = num(r"Lose\s*(\d+)\s*Max HP")
     if lose_mhp:
         v -= lose_mhp / 1.5; why.append(f"-{lose_mhp} max HP")
-    lose_gold = num(r"Lose\s*(\d+)\s*Gold")
+    lose_gold = num(r"(?:Lose|Pay)\s*(\d+)\s*Gold")
     if lose_gold:
         v -= lose_gold / 45; why.append(f"-{lose_gold} gold")
     if any(re.search(rf"\b{re.escape(c)}\b", text) for c in CURSES):
