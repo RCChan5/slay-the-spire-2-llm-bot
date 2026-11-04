@@ -103,13 +103,15 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
 
 15. **Map drawings** (`stsbot/mapdraw.py`): put pictures in **`C:\stsbot\images`** (png, jpg, webp). At
     the start of each act's map the bot picks one at random (no repeats in a run until all are used) and
-    draws it with right-button drags (the map draws on right-drag, so no room is chosen) as a plain outline
-    (the subject is cut out of the background first). Pictures with "flag" in the file name also get the
-    flag of Israel behind the person. About 35 seconds per picture. (A shaded, faster version was tried and
-    looked worse in the game; it is off.)
-    `python -m stsbot.mapdraw --preview images/x.jpg` shows the strokes; `python -m tools.drawtest` draws
-    once on the open map; `--no-draw` turns drawings off. The images folder is not committed to git.
-
+    draws it with right-button drags (the map draws on right-drag, so no room is chosen), about a minute
+    per picture. The subject is cut out with the U-2-Net background-removal model (`models/u2net.onnx`,
+    176 MB, from the rembg project's releases; GrabCut is used if the file is missing); its outline is
+    drawn first (leaving out where it runs off the photo), then the inner details (face, tie, hands) from
+    edges found after smoothing away texture, with thresholds from the picture's own contrast. When the
+    cut-out is small the whole picture is traced. Pictures with "flag" in the file name also get the flag
+    of Israel behind the person. `python -m stsbot.mapdraw --preview images/x.jpg` shows the strokes;
+    the dashboard has Draw now buttons; `--no-draw` turns drawings off. images/ and models/ are not
+    committed to git.
 16. **Choosing from the hand** (`stsbot/handpick.py`): cards like Armaments (upgrade a card in hand) or
     True Grit and Burning Pact (exhaust or discard one) open a "choose a card" prompt mid-fight. Upgrade:
     Bash first if it is still to be played, then a card the plan still plays this turn (attacks, or block),

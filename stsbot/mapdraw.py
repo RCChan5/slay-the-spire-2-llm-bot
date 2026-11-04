@@ -26,9 +26,10 @@ DATA = ROOT / "data"
 IMAGES = ROOT / "images"
 PICTURE_TYPES = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 BOX = (0.22, 0.12, 0.62, 0.66)  # where the picture goes: x0, y0, x1, y1 as fractions (the parchment's left half)
-MAX_OUTLINE = 220
+MAX_OUTLINE = 160
 MAX_HATCH = 300
-MIN_LENGTH = 25  # px in the working picture: shorter outlines are noise
+MIN_LENGTH = 30  # px in the working picture: shorter lines are noise
+INNER_MIN_LENGTH = 18  # inside the subject shorter lines are kept: eyes, mouth, fingers
 HATCH_SPACING = 9  # px between hatch lines
 MID_TONE, DARK_TONE = 115, 70  # grey levels: one direction of hatching below MID, crossed below DARK
 
@@ -48,8 +49,14 @@ def pick_picture(used: list[str]) -> Path | None:
     return random.choice(fresh or pics)
 
 
-def _subject(color: np.ndarray) -> np.ndarray:
-    """Mask of the subject: GrabCut seeded with a box a little inside the frame (subjects sit in the middle)."""
+MODELS = ROOT / "models"
+U2NET = MODELS / "u2net.onnx"  # background removal (rembg's U-2-Net), downloaded once into models/
+_u2net = None
+MIN_SUBJECT = 0.08  # a cut-out smaller than this share of the picture is not the subject: trace it all
+
+
+def _grabcut(color: np.ndarray) -> np.ndarray:
+    """Fallback when the model is missing: GrabCut seeded with a box a little inside the frame."""
     H, W = color.shape[:2]
     mask = np.zeros((H, W), np.uint8)
     rect = (int(0.08 * W), int(0.02 * H), int(0.84 * W), int(0.97 * H))
@@ -57,6 +64,38 @@ def _subject(color: np.ndarray) -> np.ndarray:
     cv2.grabCut(color, mask, rect, bgd, fgd, 5, cv2.GC_INIT_WITH_RECT)
     person = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
     return cv2.morphologyEx(person, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+
+
+def _subject(color: np.ndarray) -> np.ndarray:
+    """Mask of the subject (255) from the U-2-Net background-removal model; the whole picture when the
+    model finds nothing big enough (it chose a bag over two legs once)."""
+    global _u2net
+    H, W = color.shape[:2]
+    if not U2NET.exists():
+        return _grabcut(color)
+    if _u2net is None:
+        _u2net = cv2.dnn.readNetFromONNX(str(U2NET))
+    rgb = cv2.cvtColor(color, cv2.COLOR_BGR2RGB).astype(np.float32) / 255
+    x = (cv2.resize(rgb, (320, 320)) - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
+    _u2net.setInput(x.transpose(2, 0, 1)[None].astype(np.float32))
+    m = _u2net.forward()[0, 0]
+    m = cv2.resize((m - m.min()) / (m.max() - m.min() + 1e-6), (W, H))
+    mask = (m > 0.5).astype(np.uint8) * 255
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    if mask.mean() / 255 < MIN_SUBJECT:
+        return np.full((H, W), 255, np.uint8)
+    return mask
+
+
+def _calm_edges(gray: np.ndarray) -> np.ndarray:
+    """Edges that matter: texture (skin, cloth, wall) smoothed away first, thresholds from the picture's
+    own contrast so soft pictures still get lines."""
+    g = gray
+    for _ in range(3):
+        g = cv2.bilateralFilter(g, 9, 45, 9)
+    gx, gy = cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1)
+    hi = float(np.percentile(np.hypot(gx, gy), 91))
+    return cv2.Canny(g, 0.45 * hi / 4, hi / 4)
 
 
 def _hatch(region: np.ndarray, angle_deg: float, spacing: int, min_run: int = 8) -> list[np.ndarray]:
@@ -97,17 +136,39 @@ def strokes_from_picture(path: Path, detail: bool = False) -> list[np.ndarray]:
     color = cv2.resize(color, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
     H, W = color.shape[:2]
     person = _subject(color)
-    gray = cv2.GaussianBlur(cv2.cvtColor(color, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
 
-    # Outlines: features inside the subject and the subject's own edge.
-    edges = cv2.Canny(gray, 50, 130)
-    edges[cv2.erode(person, np.ones((7, 7), np.uint8)) == 0] = 0
-    edges = cv2.bitwise_or(edges, cv2.Canny(person, 50, 150))
+    # The subject's own outline, smoothed, drawn first and whole.
+    smooth = cv2.GaussianBlur(person, (9, 9), 0)
+    outline_cs, _ = cv2.findContours((smooth > 127).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    outline = []
+    for c in outline_cs:
+        if cv2.arcLength(c, True) < 4 * MIN_LENGTH or person.mean() >= 250:
+            continue
+        pts = c.reshape(-1, 2)
+        pts = np.vstack([pts, pts[:1]])
+        # Where the subject runs off the photo, its outline follows the photo's border: leave that part out.
+        on_edge = (pts[:, 0] <= 2) | (pts[:, 0] >= W - 3) | (pts[:, 1] <= 2) | (pts[:, 1] >= H - 3)
+        run: list = []
+        for q, edge in zip(pts, on_edge):
+            if edge:
+                if len(run) > 8:
+                    outline.append(np.array(run, np.float32))
+                run = []
+            else:
+                run.append(q)
+        if len(run) > 8:
+            outline.append(np.array(run, np.float32))
+    outline = [cv2.approxPolyDP(o.reshape(-1, 1, 2), 1.5, False).reshape(-1, 2).astype(np.float32) for o in outline]
+
+    # Inner details (face, tie, hands, folds): the calm edges, inside the subject only.
+    edges = _calm_edges(gray)
+    edges[cv2.erode(person, np.ones((9, 9), np.uint8)) == 0] = 0
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-    contours = sorted((c for c in contours if cv2.arcLength(c, False) >= MIN_LENGTH),
+    contours = sorted((c for c in contours if cv2.arcLength(c, False) >= INNER_MIN_LENGTH),
                       key=lambda c: -cv2.arcLength(c, False))
-    px_strokes = [cv2.approxPolyDP(c, 1.5, False).reshape(-1, 2).astype(np.float32) for c in contours[:MAX_OUTLINE]]
-    px_strokes = [s for s in px_strokes if len(s) >= 2]
+    inner = [cv2.approxPolyDP(c, 1.5, False).reshape(-1, 2).astype(np.float32) for c in contours[:MAX_OUTLINE]]
+    px_strokes = outline + [s for s in inner if len(s) >= 2]
 
     # Shading: darker parts of the subject get hatching, the darkest crossed hatching.
     if detail:
@@ -212,6 +273,9 @@ def preview(path: Path, out: Path, detail: bool = False) -> int:
     return len(strokes)
 
 
+STEP_TIME = 0.02  # seconds per pointer step: about a minute per picture (the user's choice)
+
+
 def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = False, box=BOX, after_stroke=None) -> int:
     """Draw the picture with right-button drags. Returns the number of strokes drawn.
 
@@ -221,7 +285,7 @@ def draw_on_map(win, inputs_mod, path: Path, guard=None, detail: bool = False, b
     for st in strokes:
         if guard:
             guard()
-        inputs_mod.polyline(win, [tuple(p) for p in st], right=True)  # the map draws on right-drag
+        inputs_mod.polyline(win, [tuple(p) for p in st], step_time=STEP_TIME, right=True)  # draws on right-drag
         if after_stroke:
             after_stroke()  # tell the caller where the pointer is now, so its own strokes are not taken for a hand
     time.sleep(0.3)
