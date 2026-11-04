@@ -90,8 +90,10 @@ class Run:
         if bar.ascension is not None and bar.ascension != self.ascension:
             self.ascension = bar.ascension
             self.save()
+        if bar.floor is not None and self.floor and bar.floor > self.floor + 3:
+            bar.floor = None  # a jump of several floors at once is a misread (5 read as 57 once)
         if bar.floor is not None:
-            if bar.floor < self.floor:
+            if bar.floor < self.floor and bar.floor <= 2:  # runs start at floor 1; a smaller misread is not a new run
                 self.deck = Deck.starter(self.character, self.ascension)
                 self.drawn_images, self.drawn_floors = [], []
                 note = f"new run (floor {bar.floor} after {self.floor}); deck reset to the starter deck"

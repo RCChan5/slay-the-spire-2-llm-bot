@@ -95,5 +95,22 @@ for name, want in (("stuckmap.png", True), ("mapA0.png", False), ("f2b.png", Fal
         if b is not None and want:
             check(f"{name}: boss at the skull", abs(b[0] - 0.49) < 0.04 and 0.3 < b[1] < 0.5, True)
 
+# Floor misreads must not look like a new run (5 once read as 57, then 5 again reset the deck).
+from stsbot.run import Run, TopBar  # noqa: E402
+import stsbot.run as runmod  # noqa: E402
+import tempfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as d:
+    runmod.RUN_FILE = Path(d) / "run.json"
+    r = Run()
+    r.deck.cards.append(DeckCard("Anger", "Attack", "Deal 6 damage.", 0))
+    r.floor = 5
+    r.see(TopBar(floor=57))
+    check("a jump to 57 is ignored", r.floor, 5)
+    r.see(TopBar(floor=4))
+    check("a smaller floor above 2 is not a new run", len(r.deck.cards), 11)
+    r.see(TopBar(floor=1))
+    check("floor 1 after floor 5 is a new run", len(r.deck.cards), 10)
+
 print(f"test_route: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
