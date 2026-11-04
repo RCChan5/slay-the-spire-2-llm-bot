@@ -103,6 +103,7 @@ class Bot:
         self.state = Run.load()
         self.last_note = None
         self.loot_clicks: dict[str, int] = {}
+        self.card_skipped = False  # the card reward on this loot screen was skipped
         self.map_tries = 0
         self.synced_floor = -1
         self.last_room = ""  # the kind of room last chosen on the map (a treasure room needs its chest clicked)
@@ -575,7 +576,9 @@ class Bot:
         rows = [l for l in lines if 0.4 < l.center[0] / W < 0.62 and 0.33 < l.center[1] / H < 0.68
                 and "loot" not in l.text.lower() and re.search(r"[A-Za-z]{3}", l.text)]
         rows.sort(key=lambda l: l.center[1])
-        todo = [r for r in rows if self.loot_clicks.get(r.text, 0) < (4 if re.search(r"card", r.text, re.I) else 2)]
+        # A skipped card reward stays listed on the loot screen; opening it again would loop.
+        todo = [r for r in rows if self.loot_clicks.get(r.text, 0) < (4 if re.search(r"card", r.text, re.I) else 2)
+                and not (self.card_skipped and re.search(r"card", r.text, re.I))]
         self.say("loot: " + (", ".join(r.text for r in rows) or "nothing left"))
         if not self.play:
             return False
@@ -586,7 +589,8 @@ class Bot:
             inputs.click(self.win, r.center[0] / W, r.center[1] / H)
         else:
             if rows:
-                self.say("  left behind (could not take): " + ", ".join(r.text for r in rows))
+                self.say("  left behind" + (" (card skipped on purpose)" if self.card_skipped else " (could not take)")
+                         + ": " + ", ".join(r.text for r in rows))
             inputs.click(self.win, *LOOT_PROCEED)
             self.loot_clicks.clear()
         self.remember_pointer()
@@ -635,6 +639,7 @@ class Bot:
         self.guard()
         if ch.pick is None:
             inputs.click(self.win, *CHOICE_SKIP)
+            self.card_skipped = True  # the loot screen keeps the card row: do not open it again
         else:
             o = offers[ch.pick]
             inputs.click(self.win, o.x, o.y + 0.12)
@@ -1222,6 +1227,7 @@ class Bot:
         # fights until "Add a card to your deck" was left behind as "could not take".)
         if kind not in ("unknown",):
             self.loot_clicks.clear()
+            self.card_skipped = False
         if kind == "combat":
             if self.play:
                 self.combat_step(img, lines, W, H)
