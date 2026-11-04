@@ -38,5 +38,20 @@ check("pages without overlap", [c.name for c in merge_pages([row(r1, 0.3), row(r
 # A single page.
 check("one page", len(merge_pages([p1])), 10)
 
+# The real failure: "+" read as "t", one name unreadable (its text read instead), last page read twice.
+from stsbot.deckview import clean_name  # noqa: E402
+
+check("Basht -> Bash+", clean_name("Basht"), "Bash+")
+check("Shrug It Offt -> Shrug It Off+", clean_name("Shrug It Offt"), "Shrug It Off+")
+check("text read as a name", clean_name("Until next turn, prevents"), "Unknown card")
+check("a real name stays", clean_name("Ashen Strike"), "Ashen Strike")
+page1 = row(["Strike"] * 5, 0.3) + row(["Defend"] * 4 + ["Basht"], 0.65)
+page2 = row(["Defend", "Defend", "Defend", "Until next turn, prevents", "Basht"], 0.3) +     row(["Shrug It Off+", "Ashen Strike", "Body Slam", "Until next turn, prevents"], 0.65)
+page3 = row(["Shrug It Offt", "Ashen Strike", "Body Slam", "Until next turn,prevents"], 0.3)
+got = [c.name for c in merge_pages([page1, page2, page3, page3], target=14)]
+check("real deck view: 14 cards", len(got), 14)
+check("real deck view: names", sorted(set(got)),
+      sorted({"Strike", "Defend", "Bash+", "Shrug It Off+", "Ashen Strike", "Body Slam", "Unknown card"}))
+
 print(f"test_deckview: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

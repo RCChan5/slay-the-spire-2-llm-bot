@@ -32,7 +32,7 @@ from .mapread import read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
-from .deckview import DECK_ICON, merge_pages
+from .deckview import DECK_ICON, merge_pages, page_names
 from .campfire import CONFIRM, best_upgrade, campfire_options, read_grid, should_rest
 from .events import best_option, read_options
 from .ocr import Line
@@ -624,7 +624,7 @@ class Bot:
             img = self.frame()
             lines, W, H = self.read(img)
             cards = read_grid(lines, W, H, min_name_y)
-            sig = [(c.name, round(c.y, 2)) for c in cards]
+            sig = page_names(cards)  # names only: OCR jitter in positions must not look like scrolling
             if sig == last:
                 break
             pages.append(cards)
@@ -638,7 +638,7 @@ class Bot:
         inputs.click(self.win, *DECK_ICON)
         self.remember_pointer()
         time.sleep(1.2)
-        cards = merge_pages(self.read_grid_pages(min_name_y=0.21))  # below the sort bar
+        cards = merge_pages(self.read_grid_pages(min_name_y=0.21), screen_count)  # names below the sort bar
         inputs.key(self.win, "esc")
         time.sleep(0.8)
         self.move(*REST)

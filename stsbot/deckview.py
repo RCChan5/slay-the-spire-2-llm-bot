@@ -1,40 +1,56 @@
 """Read the whole deck from the deck view (the deck icon, top right) and put the tracked deck right.
 
-The deck view is a card grid that scrolls. Each page is read as rows of cards; pages overlap when
-scrolled, so rows are merged by the longest overlap between the end of what was read so far and the start
-of the next page. The tracked deck is only replaced when the count matches the deck count on the top bar.
+The deck view is a card grid that scrolls. Pages overlap and OCR varies a little between them, so pages
+are combined by name counts: each name keeps the most copies seen on any one page. The tracked deck is
+only replaced when that total matches the deck count on the top bar.
 """
 
 from __future__ import annotations
 
+import re
+from collections import Counter
+
+from .builds import CARD_TIER
 from .campfire import GridCard
 
 DECK_ICON = (0.929, 0.035)
+KNOWN_NAMES = set(CARD_TIER) | {"Strike", "Defend", "Bash", "Ascender's Bane"}
 
 
-def rows_of(cards: list[GridCard], tol: float = 0.03) -> list[tuple[GridCard, ...]]:
-    rows: list[list[GridCard]] = []
-    for c in sorted(cards, key=lambda c: (c.y, c.x)):
-        if rows and abs(rows[-1][0].y - c.y) < tol:
-            rows[-1].append(c)
-        else:
-            rows.append([c])
-    return [tuple(sorted(r, key=lambda c: c.x)) for r in rows]
+def clean_name(name: str) -> str:
+    """OCR slips on card names: "+" read as "t" ("Basht"), and card text read where the name is."""
+    name = re.sub(r"\s+", " ", name).strip()
+    if name.endswith("t") and name[:-1].strip() in KNOWN_NAMES:
+        return name[:-1].strip() + "+"
+    if name.endswith("+") and name[:-1].strip() in KNOWN_NAMES:
+        return name[:-1].strip() + "+"
+    words = name.split()
+    if "," in name or "." in name or len(words) > 4 or (words and words[0][:1].islower()):
+        return "Unknown card"  # its name was not readable: count it anyway
+    return name
 
 
-def _key(row) -> tuple:
-    return tuple(c.name for c in row)
-
-
-def merge_pages(pages: list[list[GridCard]]) -> list[GridCard]:
-    """All cards from pages read top to bottom while scrolling down, overlapping rows counted once."""
-    merged: list[tuple] = []
+def merge_pages(pages: list[list[GridCard]], target: int | None = None) -> list[GridCard]:
+    """All cards from pages read while scrolling: each name with the most copies seen on one page.
+    target: the deck count on screen; extra "Unknown card" entries (an unreadable name standing in for a
+    card already counted) are dropped down to it."""
+    best: dict[str, list[GridCard]] = {}
+    order: list[str] = []
     for page in pages:
-        rows = rows_of(page)
-        best = 0
-        for k in range(min(len(merged), len(rows)), 0, -1):
-            if [_key(r) for r in merged[-k:]] == [_key(r) for r in rows[:k]]:
-                best = k
-                break
-        merged.extend(rows[best:])
-    return [c for r in merged for c in r]
+        by_name: dict[str, list[GridCard]] = {}
+        for c in page:
+            c.name = clean_name(c.name)
+            by_name.setdefault(c.name, []).append(c)
+        for name, cards in by_name.items():
+            if name not in best:
+                order.append(name)
+            if len(cards) > len(best.get(name, [])):
+                best[name] = cards
+    cards = [c for name in order for c in best[name]]
+    while target is not None and len(cards) > target and any(c.name == "Unknown card" for c in cards):
+        cards.remove(next(c for c in cards if c.name == "Unknown card"))
+    return cards
+
+
+def page_names(cards: list[GridCard]) -> Counter:
+    return Counter(clean_name(c.name) for c in cards)
