@@ -15,15 +15,18 @@ from .campfire import GridCard
 
 DECK_ICON = (0.929, 0.035)
 KNOWN_NAMES = set(CARD_TIER) | {"Strike", "Defend", "Bash", "Ascender's Bane"}
+_BY_LOWER = {n.lower(): n for n in KNOWN_NAMES}
 
 
 def clean_name(name: str) -> str:
     """OCR slips on card names: "+" read as "t" ("Basht"), and card text read where the name is."""
     name = re.sub(r"\s+", " ", name).strip()
-    if name.endswith("t") and name[:-1].strip() in KNOWN_NAMES:
-        return name[:-1].strip() + "+"
-    if name.endswith("+") and name[:-1].strip() in KNOWN_NAMES:
-        return name[:-1].strip() + "+"
+    low = name.lower()
+    if low in _BY_LOWER:  # known names regardless of capitals ("Shrug It off")
+        return _BY_LOWER[low]
+    for tail in ("t", "+"):
+        if low.endswith(tail) and low[:-1].strip() in _BY_LOWER:
+            return _BY_LOWER[low[:-1].strip()] + "+"
     words = name.split()
     if "," in name or "." in name or len(words) > 4 or (words and words[0][:1].islower()):
         return "Unknown card"  # its name was not readable: count it anyway
