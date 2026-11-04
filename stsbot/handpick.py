@@ -20,13 +20,14 @@ from .screen import Card
 
 BAD_CARDS = {"Injury", "Infection", "Slimed", "Wound", "Burn", "Dazed", "Doubt", "Regret", "Shame", "Pain",
              "Parasite", "Clumsy", "Decay", "Normality", "Writhe", "Ascender's Bane", "Greed"}
-PROMPT = re.compile(r"(choose|select)\b.{0,40}?\b(upgrade|discard|exhaust)", re.I)
+PROMPT = re.compile(r"(choose|select|confirm)\b.{0,40}?\b(upgrade|discard|exhaust)", re.I)
 
 
 @dataclass
 class Prompt:
     action: str  # "upgrade", "discard" or "exhaust"
     count: int
+    confirm: bool = False  # "Confirm Card to Upgrade": the card is chosen, only the check mark is left
 
 
 def read_prompt(text: str) -> Prompt | None:
@@ -35,7 +36,7 @@ def read_prompt(text: str) -> Prompt | None:
     if not m:
         return None
     n = re.search(r"(choose|select)\s*(\d+)", text, re.I)
-    return Prompt(m.group(2).lower(), int(n.group(2)) if n else 1)
+    return Prompt(m.group(2).lower(), int(n.group(2)) if n else 1, m.group(1).lower() == "confirm")
 
 
 def _is_bad(card: Card) -> bool:

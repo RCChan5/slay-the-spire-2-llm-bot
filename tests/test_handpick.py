@@ -40,6 +40,8 @@ p = read_prompt("Choose 2 cards to Discard.")
 check("prompt: discard 2", (p.action, p.count), ("discard", 2))
 check("prompt: exhaust", read_prompt("Select a card to Exhaust.").action, "exhaust")
 check("no prompt in normal text", read_prompt("Deal 6 damage."), None)
+p = read_prompt("Confirm Card to Upgrade")
+check("the confirm screen after choosing", (p.action, p.confirm), ("upgrade", True))
 
 h = hand("Strike", "Bash", "Defend", "Injury")
 check("upgrade Bash when it is still to play", h[upgrade_pick(h, {"Bash", "Strike"})[0]].name, "Bash")

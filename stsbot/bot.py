@@ -794,6 +794,19 @@ class Bot:
 
     def hand_prompt_step(self, img, lines, W, H, prompt) -> bool:
         """A card asked to choose cards from the hand (upgrade, discard, exhaust): pick by the rules, confirm."""
+        if prompt.confirm:  # the preview is up: the card is chosen, confirm it
+            self.say(f"  hand prompt: confirming the {prompt.action}")
+            if not self.play:
+                return False
+            if self.prompt_tries >= 3:
+                raise Stuck(f"the '{prompt.action}' confirm screen did not go away")
+            self.prompt_tries += 1
+            self.guard()
+            inputs.click(self.win, *CONFIRM)
+            self.remember_pointer()
+            self.move(*REST)
+            time.sleep(1.0)
+            return True
         c = read_combat(lines, W, H)
         hand = c.hand if c else []
         saved = {d.name: (d.kind, d.text) for d in self.state.deck.cards}
