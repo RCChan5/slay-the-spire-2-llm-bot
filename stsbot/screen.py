@@ -110,6 +110,8 @@ def screen_kind(lines: list[Line], W: int, H: int) -> str:
         return "campfire"
     if "card to upgrade" in texts:
         return "upgrade_select"
+    if "card to remove" in texts:  # before "choose a card": this one takes a card away
+        return "remove_select"
     if "choose a card" in texts:
         return "card_choice"
     if "loot!" in texts or texts.startswith("loot") or " | loot" in texts:

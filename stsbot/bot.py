@@ -33,7 +33,7 @@ from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
 from .deckview import DECK_ICON, merge_pages, page_names
-from .campfire import CONFIRM, best_upgrade, campfire_options, read_grid, should_rest
+from .campfire import CONFIRM, best_removal, best_upgrade, campfire_options, read_grid, should_rest
 from .events import best_option, read_options
 from .ocr import Line
 from .route import RunInfo, choose_room
@@ -747,6 +747,44 @@ class Bot:
         time.sleep(1.5)
         return True
 
+    def remove_step(self) -> bool:
+        """"Choose a card to Remove.": look at every page, cut the worst card, confirm with the check mark."""
+        pages = self.read_grid_pages()
+        best = None
+        for p_i, cards in enumerate(pages):
+            i, scores = best_removal(cards, self.state.deck, self.state.floor)
+            if i is not None and (best is None or scores[i][0] > best[0]):
+                best = (scores[i][0], scores[i][1], p_i, cards[i])
+        if best is None:
+            self.say("  remove: no card found on the grid")
+            return False
+        score, why, p_i, card = best
+        self.say(f"  remove: {card.name} ({why})")
+        self.log(kind="remove", card=card.name, why=why, play=self.play)
+        if not self.play:
+            return False
+        if p_i != len(pages) - 1:  # scroll back up to the page it was on
+            self.guard()
+            inputs.move(self.win, 0.5, 0.6)
+            inputs.wheel(self.win, 3 * (len(pages) - 1 - p_i))
+            self.remember_pointer()
+            time.sleep(0.7)
+        self.guard()
+        inputs.click(self.win, card.x, card.y)
+        self.remember_pointer()
+        time.sleep(1.0)
+        self.guard()
+        inputs.click(self.win, *CONFIRM)
+        self.remember_pointer()
+        self.move(*REST)
+        for c in self.state.deck.cards:
+            if c.name == card.name or c.name.rstrip("+") == card.name.rstrip("+"):
+                self.state.deck.cards.remove(c)
+                break
+        self.state.save()
+        time.sleep(1.5)
+        return True
+
     # ---------- main loop
     def run(self):
         self.win = find_game()
@@ -806,6 +844,13 @@ class Bot:
             if acted is False:
                 return True
             self.idle_since = time.time()
+            return False
+        if kind == "remove_select":
+            if self.play or kind != self.last_summary:
+                self.last_summary = kind
+                if self.remove_step():
+                    self.idle_since = time.time()
+            time.sleep(0.5)
             return False
         if kind in ("campfire", "upgrade_select"):
             sig = kind + "|" + str(self.state.floor)

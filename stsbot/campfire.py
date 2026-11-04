@@ -114,3 +114,26 @@ def best_upgrade(cards: list[GridCard], deck: Deck, floor: int) -> tuple[int | N
         return None, []
     i = max(range(len(scores)), key=lambda k: scores[k][0])
     return (i if scores[i][0] > -100 else None), scores
+
+
+CURSES_AND_STATUS = ("Curse", "Status")
+
+
+def remove_score(card: GridCard, deck: Deck, floor: int) -> tuple[float, str]:
+    """How much the deck gains by losing this card (higher = remove first)."""
+    base = card.name.rstrip("+")
+    if card.kind in CURSES_AND_STATUS or "Unplayable" in card.text:
+        return 100.0, "curse"
+    if base == "Strike":
+        return 50.0 - (5 if card.name.endswith("+") else 0), "basic Strike"
+    if base == "Defend":
+        return 40.0 - (5 if card.name.endswith("+") else 0), "basic Defend (kept longer: block first)"
+    v, _ = value(card.name, None, card.kind, card.text, deck, floor, in_deck=True)
+    return 20.0 - v, f"weakest card (value {v:.1f})"
+
+
+def best_removal(cards: list[GridCard], deck: Deck, floor: int) -> tuple[int | None, list[tuple[float, str]]]:
+    scores = [remove_score(c, deck, floor) for c in cards]
+    if not scores:
+        return None, []
+    return max(range(len(scores)), key=lambda k: scores[k][0]), scores

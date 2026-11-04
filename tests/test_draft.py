@@ -72,5 +72,8 @@ wall = value("Blood Wall", 1, "Skill", "Lose 2 HP. Gain 16 Block.", starter, 8)[
 wall_free = value("Blood Wall", 1, "Skill", "Gain 16 Block.", starter, 8)[0]
 check("losing HP to block costs value", wall < wall_free, True)
 
+misread = value("Armaments", 1, "Skill", "Gain 51 Block. Upgrade a card in your Hand.", starter, 8)[0]
+check("block misread (51) capped", misread < 15, True)
+
 print(f"test_draft: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

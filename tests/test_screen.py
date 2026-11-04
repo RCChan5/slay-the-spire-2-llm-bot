@@ -28,6 +28,7 @@ CASES = {
     "gameover1.png": dict(kind="game_over"),
     "camp1.png": dict(kind="campfire"),
     "smith1.png": dict(kind="upgrade_select"),
+    "remove1.png": dict(kind="remove_select"),
 }
 
 ocr = Ocr()
@@ -97,6 +98,17 @@ if p.exists():
     check("smith1.png", "grid names", [c.name for c in grid], ["Strike"] * 5 + ["Defend"] * 4 + ["Bash"])
     i, _ = best_upgrade(grid, Deck.starter(), 7)
     check("smith1.png", "upgrade pick", grid[i].name, "Bash")
+
+# Card removal: the curse goes first.
+from stsbot.campfire import best_removal  # noqa: E402
+
+p = SHOTS / "remove1.png"
+if p.exists():
+    img = cv2.imread(str(p))
+    H, W = img.shape[:2]
+    grid = read_grid(ocr.read(img), W, H)
+    i, _ = best_removal(grid, Deck.starter(), 2)
+    check("remove1.png", "removal pick", grid[i].name if i is not None else None, "Injury")
 
 print(f"test_screen: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

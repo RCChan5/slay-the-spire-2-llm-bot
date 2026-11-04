@@ -107,7 +107,7 @@ def value(name: str, cost: int | None, kind: str, text: str, deck: Deck, floor: 
         # User rule: block cards are judged by block per energy (Defend's 5 per energy is the baseline) and by
         # what they do besides blocking. The text formula above already counts block per energy for unknown
         # cards, so the ratio is added only on top of a tier.
-        ratio = e.block / per
+        ratio = min(e.block / per, 15.0)  # Impervious (30 for 2) is the best there is: more is a misread
         extras = [n for n, on in (("draw", e.draw), ("damage", e.damage), ("Vulnerable", e.vulnerable),
                                   ("Weak", e.weak), ("energy", e.energy), ("Strength", e.strength)) if on]
         b = 0.8 * len(extras) + (0.35 * (ratio - 5) if tv is not None else 0.0)
