@@ -25,7 +25,7 @@ def check(what, got, want):
 line = np.array([[0.1, 0.1], [0.12, 0.1], [0.14, 0.1], [0.16, 0.1]], np.float32)
 check("straight run -> two points", len(md.densify(line)), 2)
 check("long jump split", len(md.densify(np.array([[0.0, 0.0], [0.3, 0.0]], np.float32))) > 2, True)
-bend = np.array([[0.1, 0.1], [0.2, 0.1], [0.2, 0.2]], np.float32)
+bend = np.array([[0.1, 0.1], [0.15, 0.1], [0.15, 0.15]], np.float32)
 check("bend kept", len(md.densify(bend)), 3)
 
 # Random pick from images/ without repeats until all are used.
