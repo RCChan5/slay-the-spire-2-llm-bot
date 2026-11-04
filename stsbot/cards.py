@@ -26,6 +26,7 @@ class Effects:
     vulnerable: int = 0
     weak: int = 0
     strength: int = 0
+    enemy_strength: int = 0
     draw: int = 0
     energy: int = 0
     exhaust: bool = False
@@ -47,21 +48,23 @@ def _num(pattern: str, text: str) -> int:
 def clean(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     # Common OCR slips on the game's serif font.
+    text = re.sub(r"\bIdamage\b", "damage", text)
     return text.replace("Biock", "Block").replace("BIock", "Block").replace("darnage", "damage")
 
 
 def parse(text: str, kind: str = "") -> Effects:
     t = clean(text)
     e = Effects(kind=kind, text=t)
-    e.damage = _num(r"Deal (\d+) damage", t)
-    e.hits = _num(r"(\d+) times", t) or 1
+    e.damage = _num(r"Deal\s*(\d+)\s*damage", t)
+    e.hits = _num(r"(\d+)\s*times", t) or (2 if re.search(r"damage twice", t, re.I) else 1)
     e.all_enemies = bool(re.search(r"ALL enem", t, re.I))
-    e.block = _num(r"Gain (\d+) Block", t)
-    e.vulnerable = _num(r"Apply (\d+) Vulnerable", t)
-    e.weak = _num(r"Apply (\d+) Weak", t)
-    e.strength = _num(r"Gain (\d+) Strength", t)
-    e.draw = _num(r"Draw (\d+) card", t) or (1 if re.search(r"Draw a card", t, re.I) else 0)
-    e.energy = _num(r"Gain (\d+) Energy", t)
+    e.block = _num(r"Gain\s*(\d+)\s*Block", t)
+    e.vulnerable = _num(r"Apply\s*(\d+)\s*Vulnerable", t)
+    e.weak = _num(r"Apply\s*(\d+)\s*Weak", t)
+    e.strength = _num(r"Gain\s*(\d+)\s*Strength", t)
+    e.enemy_strength = _num(r"enem\w* gains?\s*(\d+)\s*Strength", t)
+    e.draw = _num(r"Draw\s*(\d+)\s*card", t) or (1 if re.search(r"Draw a card", t, re.I) else 0)
+    e.energy = _num(r"Gain\s*(\d+)\s*Energy", t)
     e.exhaust = bool(re.search(r"\bExhaust\.", t))
     e.unplayable = bool(re.search(r"Unplayable", t, re.I)) or kind in ("Curse", "Status")
     e.known = e.unplayable or any((e.damage, e.block, e.vulnerable, e.weak, e.strength, e.draw, e.energy))

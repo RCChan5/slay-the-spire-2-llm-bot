@@ -38,7 +38,8 @@ class _Foe:
     hp: int
     incoming: int
     vuln: int = 0
-    weak: int = 0
+    weak: int = 0  # applied this turn only: the shown intent already counts Weak it had before
+    block: int = 0
 
 
 def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, powers: int, draws: int) -> tuple[float, str]:
@@ -58,7 +59,7 @@ def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, power
 
 
 def plan_turn(c: Combat) -> Plan:
-    start = [_Foe(e.hp, e.incoming) for e in c.enemies]
+    start = [_Foe(e.hp, e.incoming, e.statuses.get("Vulnerable", 0), 0, e.block) for e in c.enemies]
     hand = c.hand
     best = Plan(score=_score(start, start, c.block, 0, 0, 0)[0], why="end turn")
     best.why = _score(start, start, c.block, 0, 0, 0)[1]
@@ -67,7 +68,7 @@ def plan_turn(c: Combat) -> Plan:
     def go(used: frozenset, energy: int, foes: list[_Foe], block: int, strength: int, powers: int, draws: int,
            actions: list[Action]):
         nonlocal best
-        key = (tuple(sorted(hand[i].name for i in used)), energy, tuple((f.hp, f.vuln, f.weak) for f in foes),
+        key = (tuple(sorted(hand[i].name for i in used)), energy, tuple((f.hp, f.vuln, f.weak, f.block) for f in foes),
                block, strength)
         if key in seen:
             return
@@ -91,14 +92,17 @@ def plan_turn(c: Combat) -> Plan:
                 if sig in tried:
                     continue  # two copies of a card at one target lead to the same states
                 tried.add(sig)
-                nf = [_Foe(f.hp, f.incoming, f.vuln, f.weak) for f in foes]
+                nf = [_Foe(f.hp, f.incoming, f.vuln, f.weak, f.block) for f in foes]
                 hit_targets = [j for j, f in enumerate(nf) if f.hp > 0] if e.all_enemies else ([t] if t is not None else [])
                 if e.damage:
                     for j in hit_targets:
                         per = e.damage + strength
                         if nf[j].vuln:
                             per = int(per * 1.5)
-                        nf[j].hp -= per * e.hits
+                        for _ in range(e.hits):
+                            soak = min(nf[j].block, per)
+                            nf[j].block -= soak
+                            nf[j].hp -= per - soak
                 for j in hit_targets:
                     nf[j].vuln += e.vulnerable
                     nf[j].weak += e.weak

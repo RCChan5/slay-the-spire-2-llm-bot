@@ -65,5 +65,17 @@ check("finish the weaker one", [(a.card, a.target) for a in p.actions], [(0, 1)]
 c = Combat(50, 80, 0, 0, 3, 2, hand(S, D), [Enemy(30, 30, 0.75, 0.7, 6, 1)])
 check("no energy ends turn", plan_turn(c).actions, [])
 
+# Enemy block soaks damage: with 6 block on the 8 HP enemy, Strike cannot kill it, so hit the other.
+c = Combat(50, 80, 0, 1, 3, 2, hand(S), [Enemy(30, 30, 0.65, 0.7, 6, 1), Enemy(6, 20, 0.8, 0.7, 6, 1, block=6)])
+check("block soaks damage", [(a.card, a.target) for a in plan_turn(c).actions], [(0, 0)])
+
+# Vulnerable already on the enemy (read from its status icon): Strike deals 9 and kills a 9 HP enemy.
+c = Combat(50, 80, 0, 1, 3, 2, hand(S, D), [Enemy(9, 30, 0.75, 0.7, 20, 1, statuses={"Vulnerable": 1})])
+check("existing Vulnerable counted", [(a.card, a.target) for a in plan_turn(c).actions], [(0, 0)])
+
+# A non-attack intent brings no damage: no reason to block, so attack.
+c = Combat(50, 80, 0, 1, 3, 2, hand(S, D), [Enemy(30, 30, 0.75, 0.7, 1, 1, intent_attack=False)])
+check("non-attack intent", [c.hand[a.card].name for a in plan_turn(c).actions], ["Strike"])
+
 print(f"test_planner: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
