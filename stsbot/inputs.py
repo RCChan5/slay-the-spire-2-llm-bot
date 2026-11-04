@@ -99,6 +99,22 @@ def drag(win: GameWindow, f0: tuple[float, float], f1: tuple[float, float]) -> N
     _send(_mouse(MOUSEEVENTF_LEFTUP))
 
 
+def polyline(win: GameWindow, points: list[tuple[float, float]], step_time: float = 0.012, right: bool = False) -> None:
+    """Press, move through the points (fractions of the window), release: one pen stroke."""
+    down, up = (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP) if right else (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
+    if len(points) < 2:
+        return
+    _check(win)
+    move_px(*win.to_screen(points[0][0] * win.width, points[0][1] * win.height))
+    time.sleep(step_time)
+    _send(_mouse(down))
+    for fx, fy in points[1:]:
+        move_px(*win.to_screen(fx * win.width, fy * win.height))
+        time.sleep(step_time)
+    _send(_mouse(up))
+    time.sleep(step_time)
+
+
 def wheel(win: GameWindow, notches: int) -> None:
     """Scroll: negative notches scroll down."""
     _check(win)

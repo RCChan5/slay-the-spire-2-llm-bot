@@ -50,8 +50,9 @@ def should_rest(hp: int, max_hp: int) -> bool:
     return max_hp > 0 and hp / max_hp < REST_BELOW
 
 
-def read_grid(lines: list[Line], W: int, H: int) -> list[GridCard]:
-    """Cards on the deck grid: each kind label with the name above it and the text below it."""
+def read_grid(lines: list[Line], W: int, H: int, min_name_y: float = 0.0) -> list[GridCard]:
+    """Cards on the deck grid: each kind label with the name above it and the text below it.
+    min_name_y: names above this are not names (the deck view's sort bar sits at the top)."""
     cards = []
     for k in lines:
         kind = k.text.strip().lower()
@@ -65,7 +66,7 @@ def read_grid(lines: list[Line], W: int, H: int) -> list[GridCard]:
             fx, fy = l.center[0] / W, l.center[1] / H
             if abs(fx - kx) > 0.065 or l is k:
                 continue
-            if 0.1 < ky - fy < 0.19 and re.search(r"[A-Za-z]{3}", l.text):
+            if 0.1 < ky - fy < 0.19 and fy >= min_name_y and re.search(r"[A-Za-z]{3}", l.text):
                 d = abs(ky - fy - 0.146) + abs(fx - kx)
                 if d < best:
                     best, name = d, l

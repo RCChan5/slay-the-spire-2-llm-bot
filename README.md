@@ -101,6 +101,15 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     every card while scrolling, merges the overlapping rows and replaces the tracked deck if the count
     matches. Once per floor at most.
 
+15. **Map drawings** (`stsbot/mapdraw.py`): put pictures in **`C:\stsbot\images`** (png, jpg, webp). At
+    the start of each act's map the bot picks one at random (no repeats in a run until all are used) and
+    draws it with right-button drags (the map draws on right-drag, so no room is chosen). The pen has one
+    colour, so detail comes from hatching: outlines first, then parallel lines over darker parts and
+    crossed lines over the darkest. The subject is cut out of the background first. Pictures with "flag"
+    in the file name also get the flag of Israel behind the person. About 45 seconds per picture.
+    `python -m stsbot.mapdraw --preview images/x.jpg` shows the strokes; `python -m tools.drawtest` draws
+    once on the open map; `--no-draw` turns drawings off. The images folder is not committed to git.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -128,6 +137,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_route     # route choices (made-up map
 C:\SAS\.venv\Scripts\python -m tests.test_potions   # potion rules
 C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
 C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
+C:\SAS\.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 

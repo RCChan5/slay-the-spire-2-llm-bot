@@ -27,6 +27,7 @@ from . import inputs
 from .cards import effects_for
 from .ocr import Ocr
 from .draft import choose
+from .mapdraw import IMAGES, draw_on_map, pick_picture
 from .mapread import read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
@@ -77,8 +78,9 @@ class Stuck(Exception):
 
 class Bot:
     def __init__(self, play: bool, max_turns: int | None = None, resume: bool = True, still_secs: float = 5.0,
-                 max_runs: int | None = None):
+                 max_runs: int | None = None, draw: bool = True):
         self.play = play
+        self.draw = draw
         self.max_runs = max_runs
         self.runs_started = 0
         self.resume = resume
@@ -460,6 +462,20 @@ class Bot:
     def map_step(self, img, lines, W, H) -> bool:
         m = read_map(img)
         s = self.state
+        # A fresh map (nothing visited yet: the start of a run or of an act) gets a random picture first.
+        if (self.play and self.draw and m.current is None and s.floor not in s.drawn_floors):
+            pic = pick_picture(s.drawn_images)
+            if pic is not None:
+                self.say(f"map: a fresh map; drawing {pic.name}")
+                n = draw_on_map(self.win, inputs, pic, guard=self.guard)
+                self.remember_pointer()
+                s.drawn_images.append(pic.name)
+                s.drawn_floors.append(s.floor)
+                s.save()
+                self.log(kind="drawing", picture=pic.name, strokes=n, floor=s.floor)
+                self.say(f"  drew {n} strokes")
+                self.move(*REST)
+                return True
         if s.floor == 0 or not s.hp:
             return False
         info = RunInfo(s.hp, s.max_hp, s.gold, s.floor, s.ascension)
@@ -595,7 +611,7 @@ class Bot:
         return True
 
     # ---------- deck
-    def read_grid_pages(self, max_pages: int = 6) -> list:
+    def read_grid_pages(self, max_pages: int = 6, min_name_y: float = 0.0) -> list:
         """Read the card grid on screen page by page, scrolling down until it stops moving."""
         pages, last = [], None
         for page in range(max_pages):
@@ -607,7 +623,7 @@ class Bot:
                 time.sleep(0.6)
             img = self.frame()
             lines, W, H = self.read(img)
-            cards = read_grid(lines, W, H)
+            cards = read_grid(lines, W, H, min_name_y)
             sig = [(c.name, round(c.y, 2)) for c in cards]
             if sig == last:
                 break
@@ -622,7 +638,7 @@ class Bot:
         inputs.click(self.win, *DECK_ICON)
         self.remember_pointer()
         time.sleep(1.2)
-        cards = merge_pages(self.read_grid_pages())
+        cards = merge_pages(self.read_grid_pages(min_name_y=0.21))  # below the sort bar
         inputs.key(self.win, "esc")
         time.sleep(0.8)
         self.move(*REST)
@@ -877,9 +893,10 @@ def main(argv=None):
                     help="stop for good when you move the mouse (default: pause, resume once it is still)")
     ap.add_argument("--still", type=float, default=5.0, help="seconds of a still mouse before resuming")
     ap.add_argument("--runs", type=int, default=None, help="start at most this many new runs (default: keep going)")
+    ap.add_argument("--no-draw", action="store_true", help="do not draw a picture from images/ on each act's map")
     args = ap.parse_args(argv)
     lock = single_instance()
     if lock is None:
         sys.exit("Another stsbot is already running. Stop it first: python -m tools.stop")
     Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still,
-        max_runs=args.runs).run()
+        max_runs=args.runs, draw=not args.no_draw).run()

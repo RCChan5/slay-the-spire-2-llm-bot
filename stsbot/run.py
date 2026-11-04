@@ -60,17 +60,23 @@ class Run:
     hp: int = 0
     max_hp: int = 0
     gold: int = 0
+    drawn_images: list = field(default_factory=list)  # pictures drawn this run (no repeats until all used)
+    drawn_floors: list = field(default_factory=list)  # floors whose fresh map got a picture
 
     def save(self):
         RUN_FILE.parent.mkdir(exist_ok=True)
         RUN_FILE.write_text(json.dumps({"character": self.character, "floor": self.floor, "ascension": self.ascension,
+                                        "drawn_images": self.drawn_images, "drawn_floors": self.drawn_floors,
                                         "deck": self.deck.to_json()}, indent=1), encoding="utf-8")
 
     @classmethod
     def load(cls) -> "Run":
         try:
             d = json.loads(RUN_FILE.read_text(encoding="utf-8"))
-            return cls(d["character"], d["floor"], Deck.from_json(d["deck"]), d.get("ascension", 0))
+            r = cls(d["character"], d["floor"], Deck.from_json(d["deck"]), d.get("ascension", 0))
+            r.drawn_images = d.get("drawn_images", [])
+            r.drawn_floors = d.get("drawn_floors", [])
+            return r
         except (OSError, ValueError, KeyError):
             return cls()
 
@@ -87,6 +93,7 @@ class Run:
         if bar.floor is not None:
             if bar.floor < self.floor:
                 self.deck = Deck.starter(self.character, self.ascension)
+                self.drawn_images, self.drawn_floors = [], []
                 note = f"new run (floor {bar.floor} after {self.floor}); deck reset to the starter deck"
             if bar.floor != self.floor:
                 self.floor = bar.floor
