@@ -31,6 +31,7 @@ from .mapread import read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
+from .deckview import DECK_ICON, merge_pages
 from .campfire import CONFIRM, best_upgrade, campfire_options, read_grid, should_rest
 from .events import best_option, read_options
 from .ocr import Line
@@ -92,6 +93,7 @@ class Bot:
         self.last_note = None
         self.loot_clicks: dict[str, int] = {}
         self.map_tries = 0
+        self.synced_floor = -1
         self.statuses = StatusBook()
         self.intent_cache: dict[tuple, tuple[bool, int, int]] = {}
         self.blocked: set[tuple[int, str]] = set()
@@ -592,6 +594,51 @@ class Bot:
         time.sleep(1.5)
         return True
 
+    # ---------- deck
+    def read_grid_pages(self, max_pages: int = 6) -> list:
+        """Read the card grid on screen page by page, scrolling down until it stops moving."""
+        pages, last = [], None
+        for page in range(max_pages):
+            if page:
+                self.guard()
+                inputs.move(self.win, 0.5, 0.6)
+                inputs.wheel(self.win, -3)
+                self.remember_pointer()
+                time.sleep(0.6)
+            img = self.frame()
+            lines, W, H = self.read(img)
+            cards = read_grid(lines, W, H)
+            sig = [(c.name, round(c.y, 2)) for c in cards]
+            if sig == last:
+                break
+            pages.append(cards)
+            last = sig
+        return pages
+
+    def sync_deck(self, screen_count: int) -> bool:
+        """Open the deck view, read every card, and replace the tracked deck if the count matches."""
+        self.say(f"deck: tracked {len(self.state.deck.cards)} cards, screen says {screen_count}; reading the deck view")
+        self.guard()
+        inputs.click(self.win, *DECK_ICON)
+        self.remember_pointer()
+        time.sleep(1.2)
+        cards = merge_pages(self.read_grid_pages())
+        inputs.key(self.win, "esc")
+        time.sleep(0.8)
+        self.move(*REST)
+        names = [c.name for c in cards]
+        self.log(kind="deck_sync", read=names, screen_count=screen_count, tracked=len(self.state.deck.cards))
+        if len(cards) != screen_count:
+            self.say(f"  deck view read {len(cards)} cards, not {screen_count}; tracked deck left as it was")
+            return False
+        from .draft import DeckCard
+        old = {c.name: c for c in self.state.deck.cards}
+        self.state.deck.cards = [DeckCard(c.name, c.kind, c.text or (old[c.name].text if c.name in old else ""),
+                                          old[c.name].cost if c.name in old else None) for c in cards]
+        self.state.save()
+        self.say(f"  deck synced: {', '.join(names)}")
+        return True
+
     # ---------- campfire
     def campfire_step(self, lines, W, H) -> bool:
         opts = campfire_options(lines, W, H)
@@ -770,6 +817,11 @@ class Bot:
                     self.last_summary = s
                     self.combat_step(img, lines, W, H)
                 time.sleep(0.5)
+            return False
+        if (kind == "map" and self.play and bar.deck_count is not None
+                and bar.deck_count != len(self.state.deck.cards) and self.synced_floor != self.state.floor):
+            self.synced_floor = self.state.floor  # once per floor, so a misread cannot loop
+            self.sync_deck(bar.deck_count)
             return False
         if kind == "map":
             sig = f"map|{self.state.floor}|{self.state.hp}"

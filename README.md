@@ -96,6 +96,11 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     cards a little higher), Defend before Strike, never a card already upgraded, and confirms with the
     check mark.
 
+14. **Deck sync** (`stsbot/deckview.py`): when the deck count on the top bar differs from the tracked deck
+    (you picked or removed cards yourself, or an event did), the bot opens the deck view on the map, reads
+    every card while scrolling, merges the overlapping rows and replaces the tracked deck if the count
+    matches. Once per floor at most.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -122,6 +127,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_draft     # card reward choices, no ga
 C:\SAS\.venv\Scripts\python -m tests.test_route     # route choices (made-up maps + saved map shots)
 C:\SAS\.venv\Scripts\python -m tests.test_potions   # potion rules
 C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
+C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 
