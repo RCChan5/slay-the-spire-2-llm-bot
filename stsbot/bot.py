@@ -113,6 +113,7 @@ class Bot:
         # Speed: reads reused while nothing they depend on changed (see enrich and step).
         self.slot_cache: dict[tuple, list] = {}  # (turn, enemy x, hp, block) -> status stack numbers
         self.intent_read: tuple | None = None  # (key, digits) of the last intents read
+        self.intent_retry: int | None = None  # the turn whose missing intents were looked at again
         self.reuse: tuple | None = None  # (time, img, lines, W, H) read right after a card play
         self.times: dict[str, float] = {}  # seconds spent on this decision, for the log
         self.blocked: set[tuple[int, str]] = set()
@@ -290,7 +291,7 @@ class Bot:
                     who.status_slots.append((fx, fy, int(t)))
             if key is not None:
                 self.slot_cache[key] = list(who.status_slots)
-        hovered = False
+        hovered = self.intent_details(img, c)
         for x, who in owners:
             for fx, fy, n in who.status_slots:
                 name = self.statuses.identify(img, fx, fy)
@@ -306,6 +307,13 @@ class Bot:
                         self.statuses.mark_unknown(img, fx, fy)
                         self.say(f"  status icon not recognized (tooltip: {text[:80]!r}); not hovered again this fight")
                 who.statuses[name or "?"] = who.statuses.get(name or "?", 0) + n
+        if hovered:
+            self.move(*REST)
+            time.sleep(0.2)
+
+    def intent_details(self, img, c: Combat) -> bool:
+        """Each intent number's tooltip: attack or not, damage and hits. True if the mouse hovered."""
+        hovered = False
         for i, e in enumerate(c.enemies):
             if e.intent_pos is None:
                 continue
@@ -324,7 +332,21 @@ class Bot:
                 e.intent_attack, dmg, hits = red_icon(img, nx, ny), 0, 1
             if e.intent_attack and dmg:
                 e.intent_damage, e.intent_hits = dmg, hits
-        if hovered:
+        return hovered
+
+    def reread_intents(self, c: Combat):
+        """At the start of a turn the intent numbers appear a moment after the screen settles, so an enemy
+        with no number is looked at once more (once per turn) before deciding."""
+        if not self.play or self.intent_retry == c.turn:
+            return
+        if not any(e.hp > 0 and e.intent_pos is None for e in c.enemies):
+            return
+        self.intent_retry = c.turn
+        time.sleep(0.5)
+        img = self.frame()
+        self.intent_read = None
+        assign_intents(c.enemies, self.crop_read(img, 0.45, 1.0, 0.12, 0.665, 2.0))
+        if self.intent_details(img, c):
             self.move(*REST)
             time.sleep(0.2)
 
@@ -438,6 +460,7 @@ class Bot:
                     card.name = match[0]
         t0 = time.time()
         self.enrich(img, c)
+        self.reread_intents(c)
         saved = {d.name: (d.kind, d.text) for d in self.state.deck.cards}
         costs = {d.name: d.cost for d in self.state.deck.cards if d.cost is not None}
         for card in c.hand:

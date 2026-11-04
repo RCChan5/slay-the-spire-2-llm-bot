@@ -37,6 +37,8 @@ Rules, in priority order:
 3. Play Powers first unless lethal or a big incoming attack needs an answer now. Play draw cards before spending energy on attacks.
 4. Apply Vulnerable before attacks; finish enemies that can die.
 5. Only play cards that are in the hand and whose cost fits the energy left. Unplayable cards cannot be played.
+6. Trust the incoming damage and the intents read from the screen. An enemy's known moves are background only:
+   do not assume an attack the screen does not show. When no damage is coming, do not block: deal damage.
 
 The simulator lists its best orders with predicted results; use them as advice, you decide.
 Reply with JSON only: {"plan": [{"card": "<card name from hand>", "target": <enemy number or 0 for none>}, ...], "reason": "<one short sentence>"}.
@@ -48,7 +50,8 @@ def _enemy_lines(c: Combat, names: list[str]) -> list[str]:
     for i, e in enumerate(c.enemies, 1):
         name = names[i - 1] if i - 1 < len(names) and names[i - 1] else "enemy"
         intent = (f"attacks for {e.intent_damage}" + (f" x{e.intent_hits}" if e.intent_hits > 1 else "")
-                  if e.incoming else ("not attacking" if e.intent_attack is False else "intent unknown"))
+                  if e.incoming else ("not attacking" if e.intent_attack is False
+                                      else "no attack number shown (probably not attacking this turn)"))
         st = ", ".join(f"{k} {v}" for k, v in e.statuses.items())
         out.append(f"{i}. {name}: {e.hp}/{e.max_hp} HP" + (f", {e.block} block" if e.block else "")
                    + f", {intent}" + (f", statuses: {st}" if st else ""))
@@ -62,7 +65,9 @@ def fight_prompt(c: Combat, options: list[Plan], names: list[str], relics: list[
     incoming = sum(e.incoming for e in c.enemies if e.hp > 0)
     lines = [f"Turn {c.turn}. HP {c.hp}/{c.max_hp}, block {c.block}, energy {c.energy}/{c.max_energy}."
              + (f" Your statuses: {', '.join(f'{k} {v}' for k, v in c.statuses.items())}." if c.statuses else ""),
-             f"Incoming damage this enemy turn: {incoming}.", "", "Hand:"]
+             f"Incoming damage this enemy turn: {incoming} (read from the intents on screen)"
+             + (". Nothing is attacking: spend the turn on damage, Powers and setup, not block." if incoming == 0 else "."),
+             "", "Hand:"]
     for card in c.hand:
         line = cx.card_line(card.name)
         if cx.card(card.name) is None and card.effects is not None and card.effects.text:
