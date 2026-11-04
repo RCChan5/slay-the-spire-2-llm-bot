@@ -7,6 +7,7 @@ only replaced when that total matches the deck count on the top bar.
 
 from __future__ import annotations
 
+import difflib
 import re
 from collections import Counter
 
@@ -43,6 +44,10 @@ def merge_pages(pages: list[list[GridCard]], target: int | None = None) -> list[
         by_name: dict[str, list[GridCard]] = {}
         for c in page:
             c.name = clean_name(c.name)
+            # One card read two ways on different pages ("Eastent" and "Fastent"): use the first spelling.
+            same = difflib.get_close_matches(c.name, order, n=1, cutoff=0.8)
+            if same and c.name not in order and same[0] != "Unknown card":
+                c.name = same[0]
             by_name.setdefault(c.name, []).append(c)
         for name, cards in by_name.items():
             if name not in best:

@@ -54,5 +54,8 @@ check("real deck view: 14 cards", len(got), 14)
 check("real deck view: names", sorted(set(got)),
       sorted({"Strike", "Defend", "Bash+", "Shrug It Off+", "Ashen Strike", "Body Slam", "Unknown card"}))
 
+check("one card read two ways counts once",
+      len(merge_pages([row(["Eastent", "Strike"], 0.3), row(["Fastent", "Strike"], 0.3)])), 2)
+
 print(f"test_deckview: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
