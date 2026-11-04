@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .builds import build_bonus, deck_builds, tier_value
 from .cards import parse
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,18 +27,6 @@ STARTER = {"Ironclad": ["Strike"] * 5 + ["Defend"] * 4 + ["Bash"]}
 STARTER_TEXT = {"Strike": ("Attack", "Deal 6 damage."), "Defend": ("Skill", "Gain 5 Block."),
                 "Bash": ("Attack", "Deal 8 damage. Apply 2 Vulnerable."),
                 "Ascender's Bane": ("Curse", "Unplayable. Ethereal.")}
-
-# Build directions and the words that mark a card as part of one.
-TAGS = {
-    "strength": r"\bStrength\b",
-    "exhaust": r"\bExhaust",
-    "block": r"\bBlock\b",
-    "vulnerable": r"\bVulnerable\b",
-    "self_damage": r"\blose \d+ HP|\bLose \d+ HP",
-    "strike": r"Strike",
-    "draw": r"\bDraw \d|\bDraw a card",  # not "Draw Pile"
-}
-
 
 @dataclass
 class DeckCard:
@@ -60,26 +49,12 @@ class Deck:
     def count(self, pred) -> int:
         return sum(1 for c in self.cards if pred(c))
 
-    def tag_counts(self) -> dict[str, int]:
-        out = {t: 0 for t in TAGS}
-        for c in self.cards:
-            if c.name.rstrip("+") in BASICS:
-                continue  # basics say nothing about the direction of the build
-            for t in card_tags(c.name, c.text):
-                out[t] += 1
-        return out
-
     def to_json(self) -> list[dict]:
         return [c.__dict__ for c in self.cards]
 
     @classmethod
     def from_json(cls, rows: list[dict]) -> "Deck":
         return cls([DeckCard(**r) for r in rows])
-
-
-def card_tags(name: str, text: str) -> set[str]:
-    blob = f"{name} {text}"
-    return {t for t, pat in TAGS.items() if re.search(pat, blob)}
 
 
 def load_ratings() -> dict[str, float]:
@@ -103,6 +78,7 @@ def value(name: str, cost: int | None, kind: str, text: str, deck: Deck, floor: 
     why: list[str] = []
     if e.unplayable:
         return -5.0, ["unplayable"]
+    tv = tier_value(name)
     c = cost if cost is not None else 1
     per = max(c, 0.5)
     dmg = e.damage * e.hits
@@ -122,16 +98,27 @@ def value(name: str, cost: int | None, kind: str, text: str, deck: Deck, floor: 
         v += 1.0
     if e.exhaust and kind != "Power":
         v -= 0.5
-
-    tags = card_tags(name, text)
-    deck_tags = deck.tag_counts()
-    syn = sum(min(deck_tags[t], 4) for t in tags)
-    if syn:
-        v += 0.8 * syn
-        why.append("fits the build: " + ", ".join(sorted(t for t in tags if deck_tags[t])))
+    if tv is not None:
+        # Known card: the guides' tier is the base; Perfected Strike still grows with more Strike cards.
+        extra = 0.4 * max(0, strikes - 5) if m else 0.0
+        v = tv + extra
+        why = [w for w in why if "Strike cards" in w] + [f"tier {tv:.1f}"]
 
     if in_deck:
         return round(v, 2), why
+
+    # The build the deck is going for.
+    state = deck_builds(deck.cards)
+    needs = set()
+    if not deck.count(lambda d: parse(d.text, d.kind).all_enemies):
+        needs.add("aoe")
+    if deck.count(lambda d: d.name.rstrip("+") not in BASICS and parse(d.text, d.kind).block) < 3:
+        needs.add("block")
+    if deck.count(lambda d: parse(d.text, d.kind).draw) < 2:
+        needs.add("draw")
+    bonus, bwhy = build_bonus(name, text, state, needs)
+    v += bonus
+    why += bwhy
 
     # What the deck lacks now.
     attacks = deck.count(lambda d: parse(d.text, d.kind).damage > 0 and d.name.rstrip("+") not in BASICS)
@@ -175,8 +162,10 @@ def choose(offers, deck: Deck, floor: int = 1, can_skip: bool = True) -> Choice:
     best = max(range(len(vals)), key=lambda i: vals[i][0])
     if vals[best][0] < bar and can_skip:
         return Choice(None, vals, bar, f"skip: best is {offers[best].name} at {vals[best][0]}, "
-                                        f"below the bar {bar} (deck of {len(deck.cards)}, average {avg:.2f})")
+                                        f"below the bar {bar} (deck of {len(deck.cards)}, average {avg:.2f}). "
+                                        + deck_builds(deck.cards).describe())
     reasons = "; ".join(vals[best][1]) or "strongest card"
+    reasons += ". " + deck_builds(deck.cards).describe()
     if vals[best][0] < bar:
         return Choice(best, vals, bar, f"take {offers[best].name} ({vals[best][0]}, below bar {bar} but no skip): {reasons}")
     return Choice(best, vals, bar, f"take {offers[best].name} ({vals[best][0]} over bar {bar}): {reasons}")

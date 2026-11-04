@@ -30,6 +30,7 @@ from .draft import choose
 from .mapread import read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
+from .builds import deck_builds
 from .route import RunInfo, choose_room
 from .run import Run, read_top_bar
 from .screen import (DIGITS, FRAC, Card, Combat, assign_intents, join_text, parse_intent_tooltip,
@@ -441,7 +442,7 @@ class Bot:
         ch = choose_room(m, info, s.deck)
         reach = [f"{m.rooms[i].kind}" for i, r in enumerate(m.rooms) if r.reachable]
         self.say(f"map: {len(m.rooms)} rooms, reachable {reach}; HP {s.hp}/{s.max_hp}, gold {s.gold}, "
-                 f"floor {s.floor}, A{s.ascension}, deck {len(s.deck.cards)}")
+                 f"floor {s.floor}, A{s.ascension}, deck {len(s.deck.cards)}; {deck_builds(s.deck.cards).describe()}")
         self.say("  route: " + ch.why)
         self.log(kind="map", reachable=reach, choice=None if ch.room is None else m.rooms[ch.room].kind,
                  why=ch.why, score=round(ch.score, 2), play=self.play)

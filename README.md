@@ -57,6 +57,23 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     (the coming attacks would kill even after the best plays) whatever helps is used, full belt or not.
     Potions it cannot judge (for example ones that open a card choice) are never used automatically.
 
+11. **Builds** (`stsbot/builds.py`): card picks know the Ironclad builds from Slay the Spire 2 guides
+    (FinalBoss, PCGamesN, slay-the-spire-2.pages.dev), each with key cards, support cards and what it still
+    needs:
+    - Strength stacking: Demon Form, Limit Break, Inflame, Spot Weakness; Whirlwind, Twin Strike, Heavy Blade...
+    - Vulnerable: Molten Fist, Tremble, Dismantle, Uppercut, Cruelty; Taunt, Colossus, Dominate (needs block)
+    - Barricade / Body Slam: Barricade, Body Slam, Entrench, Juggernaut; Shrug It Off, Flame Barrier... (needs draw)
+    - Exhaust: Corruption, Feel No Pain, Dark Embrace; True Grit, Burning Pact, Second Wind, Fiend Fire...
+    - Self-damage / Rupture: Rupture, Inferno, Crimson Mantle; Bloodletting, Offering, Hemokinesis, Brand...
+    - Strike: Perfected Strike, Hellraiser; Pommel Strike, Twin Strike, Ashen Strike...
+
+    Known cards start from the guides' tier (S 8, A 6.5, B 5, C 3.5, D 2.5, so D-tier cards such as Fight Me!
+    are usually skipped); unknown cards are valued from their text and lean toward a build by keywords.
+    Progress in a build is 3 per key card and 1 per support card. Once one build has 5 or more and leads the
+    next by 2, the deck **commits**: its key cards are worth +4, support +2.5, other builds' key cards -1.5,
+    and cards covering the build's needs +1.5. Before committing it leans toward the two leading builds. The
+    build is shown on every card choice and map line. Your own ratings in `data/card_ratings.json` still win.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -82,6 +99,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_planner   # made-up states, no game ne
 C:\SAS\.venv\Scripts\python -m tests.test_draft     # card reward choices, no game needed
 C:\SAS\.venv\Scripts\python -m tests.test_route     # route choices (made-up maps + saved map shots)
 C:\SAS\.venv\Scripts\python -m tests.test_potions   # potion rules
+C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 
