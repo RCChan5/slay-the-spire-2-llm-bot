@@ -32,6 +32,7 @@ from .mapread import boss_point, read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
+from .handpick import discard_pick, read_prompt, upgrade_pick
 from .deckview import DECK_ICON, merge_pages, page_names
 from .campfire import CONFIRM, best_removal, best_upgrade, campfire_options, read_grid, should_rest
 from .events import best_option, read_options
@@ -96,6 +97,8 @@ class Bot:
         self.loot_clicks: dict[str, int] = {}
         self.map_tries = 0
         self.synced_floor = -1
+        self.pending_play: set[str] = set()  # cards the current plan still means to play this turn
+        self.prompt_tries = 0
         self.statuses = StatusBook()
         self.intent_cache: dict[tuple, tuple[bool, int, int]] = {}
         self.blocked: set[tuple[int, str]] = set()
@@ -370,6 +373,7 @@ class Bot:
             return False
         if self.potion_step(img, c, plan):
             return True
+        self.pending_play = {c.hand[a.card].name for a in plan.actions[1:]}
         if plan.actions:
             a = plan.actions[0]
             card = c.hand[a.card]
@@ -788,6 +792,53 @@ class Bot:
         time.sleep(1.5)
         return True
 
+    def hand_prompt_step(self, img, lines, W, H, prompt) -> bool:
+        """A card asked to choose cards from the hand (upgrade, discard, exhaust): pick by the rules, confirm."""
+        c = read_combat(lines, W, H)
+        hand = c.hand if c else []
+        saved = {d.name: (d.kind, d.text) for d in self.state.deck.cards}
+        for card in hand:
+            kind, text = saved.get(card.name, ("", ""))
+            card.effects = effects_for(card.name, text, kind, saved)
+        energy = c.energy if c else 0
+        if not hand:
+            self.say(f"  hand prompt ({prompt.action}): no cards read in hand")
+            return False
+        if prompt.action == "upgrade":
+            i, why = upgrade_pick(hand, self.pending_play)
+            picks = [(i, why)] if i is not None else []
+        else:
+            picks = discard_pick(hand, self.pending_play, energy, prompt.count)
+        self.say(f"  hand prompt: {prompt.action} {prompt.count}: "
+                 + ", ".join(f"{hand[i].name} ({why})" for i, why in picks))
+        self.log(kind="hand_prompt", action=prompt.action, picks=[hand[i].name for i, _ in picks], play=self.play)
+        if not self.play or not picks:
+            return False
+        if self.prompt_tries >= 2:
+            raise Stuck(f"the '{prompt.action}' prompt did not go away after choosing")
+        self.prompt_tries += 1
+        (ROOT / "shots").mkdir(exist_ok=True)
+        cv2.imwrite(str(ROOT / "shots" / time.strftime("hand_prompt_%H%M%S.png")), img)  # to check the layout
+        for i, _ in picks:
+            self.guard()
+            inputs.click(self.win, hand[i].x, hand[i].y + 0.06)
+            self.remember_pointer()
+            time.sleep(0.5)
+        time.sleep(0.4)
+        img2 = self.frame()
+        lines2, W2, H2 = self.read(img2)
+        cv2.imwrite(str(ROOT / "shots" / time.strftime("hand_prompt_chosen_%H%M%S.png")), img2)
+        btn = next((l for l in lines2 if l.text.strip().lower() in ("confirm", "done", "ok")), None)
+        self.guard()
+        if btn is not None:
+            inputs.click(self.win, btn.center[0] / W2, btn.center[1] / H2)
+        elif read_prompt(" ".join(l.text for l in lines2)):
+            inputs.click(self.win, *CONFIRM)  # the check mark, as on the other choose-a-card screens
+        self.remember_pointer()
+        self.move(*REST)
+        time.sleep(1.0)
+        return True
+
     # ---------- main loop
     def run(self):
         self.win = find_game()
@@ -830,6 +881,12 @@ class Bot:
             got = [t for t, fx, fy in self.crop_read(img, 0.42, 0.47, 0.0, 0.065, 2.0) if DIGITS.match(t)]
             bar.floor = int(got[0]) if got else None
         note = self.state.see(bar)
+        prompt = read_prompt(" ".join(l.text for l in lines if 0.08 < l.center[1] / H < 0.8))
+        if prompt is not None and kind in ("combat", "unknown", "enemy_turn"):
+            if self.hand_prompt_step(img, lines, W, H, prompt):
+                self.idle_since = time.time()
+            return False
+        self.prompt_tries = 0
         if kind != "map":
             self.map_tries = 0
         if note and note != self.last_note:

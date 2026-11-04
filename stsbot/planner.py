@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 from .screen import Combat
 
+UPGRADE_HAND_VALUE = 1.5  # Armaments: a card in hand gets better for the rest of the fight
+CLEAR_BAD_VALUE = 7.0  # discarding or exhausting a curse or status card: no more dead draws this fight
 ENERGY_LEFT = 0.02  # tie-breaker only: far below a point of damage or HP
 KILL_BONUS = 3.0  # a tie-breaker: a kill counts mainly through the damage that enemy no longer deals
 HP_LOSS_WEIGHT = 10.0  # user rule: block first at any HP; HP lost outweighs damage dealt
@@ -65,6 +67,9 @@ def _score(foes: list[_Foe], start: list[_Foe], block: int, strength: int, power
 
 def plan_turn(c: Combat) -> Plan:
     start = [_Foe(e.hp, e.incoming, e.statuses.get("Vulnerable", 0), 0, e.block) for e in c.enemies]
+    from .handpick import BAD_CARDS
+    bad_in_hand = sum(1 for card in c.hand if card.name.rstrip("+") in BAD_CARDS
+                      or (card.effects and card.effects.unplayable))
     self_damage = 0
     for card in c.hand:
         m = re.search(r"end of your turn.*?take\s*(\d+)\s*damage", card.effects.text if card.effects else "", re.I)
@@ -85,6 +90,9 @@ def plan_turn(c: Combat) -> Plan:
         seen.add(key)
         s, why = _score(foes, start, block, strength, powers, draws, self_damage)
         s += ENERGY_LEFT * energy  # equal outcome for less energy: the most efficient block (user rule)
+        played = [hand[i].effects for i in used if hand[i].effects]
+        s += UPGRADE_HAND_VALUE * sum(1 for e in played if e.upgrades_hand)
+        s += CLEAR_BAD_VALUE * min(bad_in_hand, sum(e.clears_hand for e in played))
         if s > best.score + 1e-9:
             best = Plan(list(actions), s, why, block)
         if all(f.hp <= 0 for f in foes):

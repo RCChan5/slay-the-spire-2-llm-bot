@@ -30,6 +30,8 @@ class Effects:
     draw: int = 0
     energy: int = 0
     exhaust: bool = False
+    upgrades_hand: bool = False  # "Upgrade a card in your Hand" (Armaments)
+    clears_hand: int = 0  # how many cards from the hand it discards or exhausts ("Exhaust 1 card", ...)
     unplayable: bool = False
     known: bool = False  # text was read and at least one effect understood
     text: str = ""
@@ -74,8 +76,12 @@ def parse(text: str, kind: str = "") -> Effects:
     e.draw = _num(r"Draw\s*(\d+)\s*card", t) or (1 if re.search(r"Draw a card", t, re.I) else 0)
     e.energy = _num(r"Gain\s*(\d+)\s*Energy", t)
     e.exhaust = bool(re.search(r"\bExhaust\.", t))
+    e.upgrades_hand = bool(re.search(r"Upgrade\s*(a|\d+|ALL)\s*cards?\s*in\s*your\s*Hand", t, re.I))
+    m = re.search(r"(Exhaust|Discard)\s*(a|\d+)\s*(random\s*)?cards?", t, re.I)
+    e.clears_hand = (1 if m.group(2).lower() == "a" else int(m.group(2))) if m else 0
     e.unplayable = bool(re.search(r"Unplayable", t, re.I)) or kind in ("Curse", "Status")
-    e.known = e.unplayable or any((e.damage, e.block, e.vulnerable, e.weak, e.strength, e.draw, e.energy))
+    e.known = e.unplayable or any((e.damage, e.block, e.vulnerable, e.weak, e.strength, e.draw, e.energy,
+                                   e.upgrades_hand, e.clears_hand))
     if kind == "Power":
         e.known = True  # powers are valued as a whole by the planner
     return e

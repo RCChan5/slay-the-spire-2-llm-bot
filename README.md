@@ -110,6 +110,16 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     `python -m stsbot.mapdraw --preview images/x.jpg` shows the strokes; `python -m tools.drawtest` draws
     once on the open map; `--no-draw` turns drawings off. The images folder is not committed to git.
 
+16. **Choosing from the hand** (`stsbot/handpick.py`): cards like Armaments (upgrade a card in hand) or
+    True Grit and Burning Pact (exhaust or discard one) open a "choose a card" prompt mid-fight. Upgrade:
+    Bash first if it is still to be played, then a card the plan still plays this turn (attacks, or block),
+    never a curse, status or upgraded card. Discard or exhaust: curses and status cards first, then cards
+    that cannot be paid for this turn, then Strike before Defend (block first), never a card the plan
+    needs. The planner credits Armaments for its upgrade and values clearing a curse or status card from
+    the hand (no more dead draws this fight). The first prompts are saved to `shots/` to check the layout.
+17. **Card removal** (events, shops): curses first, then Strike, then Defend, then the weakest card,
+    confirmed with the check mark.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -138,6 +148,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_potions   # potion rules
 C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
 C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
 C:\SAS\.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
+C:\SAS\.venv\Scripts\python -m tests.test_handpick  # choosing cards from the hand
 C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 

@@ -111,5 +111,12 @@ WALL = ("Clunky Wall", 2, "Gain 8 Block.", "Skill")
 c = Combat(60, 80, 0, 2, 3, 2, hand(WALL, D), [Enemy(30, 30, 0.75, 0.7, 5, 1)])
 check("cheapest block that stops the hit", [c.hand[a.card].name for a in plan_turn(c).actions], ["Defend"])
 
+# A card that exhausts from the hand is worth playing when a curse or status card is in hand.
+TG = ("True Grit", 1, "Gain 7 Block. Exhaust a random card in your Hand.", "Skill")
+inj = Card("Injury", None, 0.7, 0.82)
+inj.effects = effects_for("Injury", "Unplayable.", "Curse")
+c = Combat(60, 80, 0, 1, 3, 2, hand(TG, S) + [inj], [Enemy(30, 30, 0.75, 0.7, 0, 1, intent_attack=False)])
+check("exhaust the curse rather than Strike", [c.hand[a.card].name for a in plan_turn(c).actions], ["True Grit"])
+
 print(f"test_planner: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
