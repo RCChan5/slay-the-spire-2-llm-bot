@@ -118,7 +118,7 @@ def decide_fight(c: Combat, options: list[Plan], names: list[str], relics: list[
                  new_cards: list[str] = ()) -> FightChoice:
     user = fight_prompt(c, options, names, relics, new_cards)
     for attempt in range(2):
-        ans = llm.ask(FIGHT_SYSTEM, user)
+        ans = llm.ask(FIGHT_SYSTEM, user, kind=f"fight, turn {c.turn}" + (", new cards" if new_cards else ""))
         if not isinstance(ans, dict):
             break
         plan = ans.get("plan")
@@ -194,7 +194,8 @@ class PickChoice:
 
 def decide_pick(offers, deck, floor: int, build: str, committed_at: int | None, can_skip: bool, hp: int,
                 max_hp: int, fallback_pick: int | None) -> PickChoice:
-    ans = llm.ask(PICK_SYSTEM, pick_prompt(offers, deck, floor, build, committed_at, can_skip, hp, max_hp))
+    ans = llm.ask(PICK_SYSTEM, pick_prompt(offers, deck, floor, build, committed_at, can_skip, hp, max_hp),
+                  kind=f"card pick, floor {floor}")
     if isinstance(ans, dict):
         new_build = str(ans.get("build", build))
         new_build = next((b for b in BUILDS if b.lower() in new_build.lower() or new_build.lower() in b.lower()), build)

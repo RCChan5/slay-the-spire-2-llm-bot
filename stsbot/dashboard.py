@@ -168,6 +168,27 @@ def status():
     }
 
 
+@app.get("/api/llm")
+def api_llm():
+    """The LLM's call in progress (its answer as it streams in) and its recent calls, newest first."""
+    from .llm import HISTORY_FILE, LIVE_FILE
+    live = None
+    try:
+        live = json.loads(LIVE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    history = []
+    try:
+        for line in HISTORY_FILE.read_text(encoding="utf-8").splitlines()[-30:]:
+            try:
+                history.append(json.loads(line))
+            except ValueError:
+                pass
+    except OSError:
+        pass
+    return {"live": live, "history": history[::-1]}
+
+
 @app.post("/api/start")
 def api_start():
     with _lock:

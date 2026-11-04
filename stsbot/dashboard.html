@@ -56,6 +56,18 @@
   .pic button { width: calc(100% - 16px); margin: 0 8px 8px; }
   .wide { grid-column: 1 / -1; }
   #msg { color: var(--warn); font-size: 13px; min-height: 1.2em; }
+  .think { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+  .think.live { border-color: var(--accent); }
+  .think .head { display: flex; gap: 10px; align-items: baseline; font-size: 13px; color: var(--muted); }
+  .think .head b { color: var(--ink); }
+  .think .answer { font-size: 14px; margin: 6px 0; white-space: pre-wrap; }
+  .think .answer .play { font-weight: 600; }
+  .think .err { color: var(--warn); font-size: 13px; }
+  details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  details pre { margin-top: 6px; max-height: 260px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+         animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
 </style>
 </head>
 <body>
@@ -101,6 +113,14 @@
     </div>
     <div class="gallery" id="gallery"></div>
     <p class="muted" id="noimages" hidden>No pictures yet: put png or jpg files in C:\stsbot\images.</p>
+  </section>
+
+  <section class="wide">
+    <h2>LLM thinking</h2>
+    <p class="muted">Each question the LLM is asked, its answer as it comes in, and the reason it gave. Plays that
+      follow a plan already made are not asked again, so they do not show here.</p>
+    <div id="llmlive"></div>
+    <div id="llmhist"></div>
   </section>
 
   <section class="wide">
@@ -168,8 +188,50 @@ $("save").onclick = async () => {
   $("saved").textContent = "saved"; setTimeout(() => $("saved").textContent = "", 2000);
 };
 
-refresh(); loadImages();
+const esc = t => String(t ?? "").replace(/[&<>"]/g, ch => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[ch]));
+
+function answerHtml(text, done) {
+  // A finished answer is JSON: show the plan or pick and the reason plainly; while streaming show the raw text.
+  try {
+    const a = JSON.parse(text);
+    const parts = [];
+    if (Array.isArray(a.plan)) parts.push(a.plan.length ? "Plan: <span class='play'>" + a.plan.map(p =>
+      esc(p.card) + (p.target ? ` -> enemy ${esc(p.target)}` : "")).join(", ") + "</span>" : "<span class='play'>End turn</span>");
+    if (a.pick !== undefined) parts.push(`Pick: <span class='play'>${esc(a.pick)}</span>` + (a.build ? ` (build: ${esc(a.build)})` : ""));
+    if (a.reason) parts.push("Why: " + esc(a.reason));
+    if (parts.length) return parts.join("<br>");
+  } catch (e) {}
+  return esc(text) || (done ? "(no answer)" : "<span class='muted'>waiting for the first words…</span>");
+}
+
+function thinkHtml(e, live) {
+  const running = live && !e.done;
+  return `<div class="think${running ? " live" : ""}">
+    <div class="head">${running ? "<span class='dot'></span>" : ""}<b>${esc(e.kind || "question")}</b>
+      <span>${esc(e.started)}</span><span>${running ? "thinking " : ""}${e.seconds}s</span></div>
+    <div class="answer">${answerHtml(e.text, e.done)}</div>
+    ${e.error ? `<div class="err">${esc(e.error)} (the simulator or rules decided instead)</div>` : ""}
+    <details><summary>What it was told</summary><pre>${esc(e.prompt)}</pre></details></div>`;
+}
+
+let llmSeen = "";
+async function refreshLlm() {
+  if (document.hidden) return;
+  try {
+    const d = await api("/api/llm");
+    const live = d.live && !d.live.done ? thinkHtml(d.live, true) : "";
+    const key = JSON.stringify([d.live && d.live.text, d.live && d.live.done, d.history.length && d.history[0].started]);
+    if (key === llmSeen) return;  // nothing new: keep open "What it was told" boxes as they are
+    llmSeen = key;
+    $("llmlive").innerHTML = live;
+    $("llmhist").innerHTML = d.history.length ? d.history.slice(0, 15).map(e => thinkHtml(e, false)).join("")
+                                              : "<p class='muted'>No LLM questions yet.</p>";
+  } catch (e) {}
+}
+
+refresh(); loadImages(); refreshLlm();
 setInterval(refresh, 2500);
+setInterval(refreshLlm, 700);
 </script>
 </body>
 </html>

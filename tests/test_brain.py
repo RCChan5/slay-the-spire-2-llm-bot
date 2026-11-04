@@ -39,7 +39,7 @@ def fight():
 answers = []
 
 
-def fake_ask(system, user, model=None):
+def fake_ask(system, user, model=None, kind=""):
     llm.last.update(seconds=0.0, error="", raw="")
     return answers.pop(0) if answers else None
 

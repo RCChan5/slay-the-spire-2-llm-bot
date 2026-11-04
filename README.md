@@ -132,6 +132,10 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     Start and Stop, the settings it starts with (draw on each act's map, seconds of still mouse before
     resuming, number of new runs), and the images folder with Draw now on each picture and Draw random.
     Drawing stops a running bot, opens the map if needed, draws, closes the map, and starts the bot again.
+    **LLM thinking** shows each question the LLM is asked as it answers: the answer streams in live, then
+    the plan or pick and its reason, with "What it was told" (the full prompt) folded away; the last 15
+    calls stay listed. The bot writes these to two small files in data/ at most every 0.3 s, so watching
+    costs the game nothing (measured: a fight decision still takes about 1.1 s).
 
 20. **LLM decisions** (`stsbot/brain.py`, `stsbot/llm.py`, `stsbot/context.py`): a local model in Ollama
     (`qwen3-vl:8b-instruct`, the user's choice of a fast 8B model; answers in well under a second once
