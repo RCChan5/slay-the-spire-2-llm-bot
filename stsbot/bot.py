@@ -60,6 +60,8 @@ NEOW_REGION = (0.24, 0.8, 0.68, 0.97)
 EVENT_REGION = (0.47, 0.92, 0.53, 0.95)  # event option boxes, right half
 GAME_OVER_BUTTONS = ("continue", "main menu", "return", "proceed", "done", "ok", "menu")
 REST = (0.5, 0.3)  # where the pointer waits, away from cards and tooltips
+# Player statuses that change the numbers printed on cards (others, like Flame Barrier, do not).
+TEXT_STATUSES = {"Strength", "Weak", "Frail", "Dexterity", "Vigor", "?"}
 KIND_WORDS = {"attack": "Attack", "skill": "Skill", "power": "Power", "curse": "Curse", "status": "Status"}
 
 
@@ -224,7 +226,7 @@ class Bot:
     def card_text(self, c: Combat, card: Card) -> tuple[str, str]:
         """Hover the card and read its kind and text from the raised card."""
         # The text only changes with the player's statuses (Strength, Weak), so it is kept across turns.
-        key = (card.name, tuple(sorted(c.statuses.items())))
+        key = (card.name, tuple(sorted((k, v) for k, v in c.statuses.items() if k in TEXT_STATUSES)))
         if key in self.text_cache:
             return self.text_cache[key]
         if not self.play:
@@ -507,6 +509,11 @@ class Bot:
                 new_cards = sorted((hand_now - q["expect"]).elements())
                 if not new_cards and q["rest"]:
                     queued = next_queued(c, q["rest"][0])
+                    incoming = sum(e.incoming for e in c.enemies if e.hp > 0)
+                    e = c.hand[queued.card].effects if queued is not None else None
+                    if (e is not None and e.block and not (e.damage or e.draw or e.energy or e.strength)
+                            and c.block >= incoming):
+                        queued = None  # block already covers it: ask again rather than waste the card
             if queued is not None:
                 ch = FightChoice(queued, "following the plan: " + q["reason"], "llm plan", q["rest"][1:])
             else:
@@ -568,7 +575,7 @@ class Bot:
         rows = [l for l in lines if 0.4 < l.center[0] / W < 0.62 and 0.33 < l.center[1] / H < 0.68
                 and "loot" not in l.text.lower() and re.search(r"[A-Za-z]{3}", l.text)]
         rows.sort(key=lambda l: l.center[1])
-        todo = [r for r in rows if self.loot_clicks.get(r.text, 0) < 2]
+        todo = [r for r in rows if self.loot_clicks.get(r.text, 0) < (4 if re.search(r"card", r.text, re.I) else 2)]
         self.say("loot: " + (", ".join(r.text for r in rows) or "nothing left"))
         if not self.play:
             return False
@@ -1210,6 +1217,11 @@ class Bot:
                     self.idle_since = time.time()
             time.sleep(0.4)
             return False
+        # Off the reward screens: the next loot screen starts with fresh click counts. (They were only
+        # cleared on Proceed; after a card pick the screen can close by itself, so counts piled up over
+        # fights until "Add a card to your deck" was left behind as "could not take".)
+        if kind not in ("unknown",):
+            self.loot_clicks.clear()
         if kind == "combat":
             if self.play:
                 self.combat_step(img, lines, W, H)
