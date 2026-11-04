@@ -168,7 +168,8 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
 
 ## Run
 
-Easiest: double-click `Start StsBot.cmd`. It stops any copy already running, checks Ollama, and runs
+Easiest: double-click `Start StsBot.cmd`. It stops any copy already running, starts the dashboard (if it is
+not up) and opens it in the browser, checks Ollama, and runs
 the bot in that window with the dashboard's saved settings (close the window or press Ctrl+C to stop).
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
