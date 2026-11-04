@@ -12,6 +12,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as wt
 import os
+import threading
 from dataclasses import dataclass
 
 import mss
@@ -97,13 +98,13 @@ def is_foreground(win: GameWindow) -> bool:
     return user32.GetForegroundWindow() == win.hwnd
 
 
-_sct = None
+_local = threading.local()  # mss objects only work in the thread that made them (the dashboard draws in threads)
 
 
 def grab(win: GameWindow) -> np.ndarray:
     """The window's client area as a BGR image. The window must be visible on screen."""
-    global _sct
-    if _sct is None:
-        _sct = mss.mss()
-    shot = _sct.grab({"left": win.left, "top": win.top, "width": win.width, "height": win.height})
+    sct = getattr(_local, "sct", None)
+    if sct is None:
+        sct = _local.sct = mss.mss()
+    shot = sct.grab({"left": win.left, "top": win.top, "width": win.width, "height": win.height})
     return np.ascontiguousarray(np.asarray(shot)[:, :, :3])
