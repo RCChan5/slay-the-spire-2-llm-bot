@@ -820,8 +820,8 @@ class Bot:
             return False
         if (kind == "map" and self.play and bar.deck_count is not None
                 and bar.deck_count != len(self.state.deck.cards) and self.synced_floor != self.state.floor):
-            self.synced_floor = self.state.floor  # once per floor, so a misread cannot loop
-            self.sync_deck(bar.deck_count)
+            self.sync_deck(bar.deck_count)  # a pause mid-sync raises before the floor is marked: it retries
+            self.synced_floor = self.state.floor  # once per floor after a finished read, so a misread cannot loop
             return False
         if kind == "map":
             sig = f"map|{self.state.floor}|{self.state.hp}"
