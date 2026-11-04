@@ -353,8 +353,17 @@ class Bot:
                 H, W = img.shape[:2]
                 x0, x1 = max(0, e.x - 0.12), min(1, e.x + 0.12)
                 lines = self.ocr.read(img[int((e.y + 0.008) * H):int((e.y + 0.06) * H), int(x0 * W):int(x1 * W)])
-                words = [l.text for l in sorted(lines, key=lambda l: l.box[0]) if re.search(r"[A-Za-z]{3}", l.text)]
-                name = " ".join(words).strip()
+                words = " ".join(l.text for l in sorted(lines, key=lambda l: (l.center[1], l.box[0]))
+                                 if re.search(r"[A-Za-z]{3}", l.text)).split()
+                # Tooltip words can come first ("ttacks any Bowlbug (Rock)"): the name is the shortest
+                # ending of the text that the monster list knows, else the last two words.
+                name = ""
+                for k in range(len(words) - 1, -1, -1):
+                    if cx.monster(" ".join(words[k:])):
+                        name = " ".join(words[k:])
+                        break
+                if not name:
+                    name = " ".join(words[-2:])
                 self.name_cache[key] = name if cx.monster(name) else name  # kept even if unknown: still useful
                 if name:
                     self.say(f"  enemy: {name}" + ("" if cx.monster(name) else " (not in the monster list)"))

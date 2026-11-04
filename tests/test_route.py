@@ -109,6 +109,10 @@ with tempfile.TemporaryDirectory() as d:
     check("a jump to 57 is ignored", r.floor, 5)
     r.see(TopBar(floor=4))
     check("a smaller floor above 2 is not a new run", len(r.deck.cards), 11)
+    r.see(TopBar(floor=0, deck_count=11))
+    check("floor 0 is a misread, not a new run", len(r.deck.cards), 11)
+    r.see(TopBar(floor=1, deck_count=18))
+    check("floor 1 with an 18-card deck is a misread", len(r.deck.cards), 11)
     r.see(TopBar(floor=1))
     check("floor 1 after floor 5 is a new run", len(r.deck.cards), 10)
 

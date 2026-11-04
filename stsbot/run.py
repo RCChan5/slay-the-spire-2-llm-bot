@@ -102,7 +102,14 @@ class Run:
         if bar.floor is not None and self.floor and bar.floor > self.floor + 3:
             bar.floor = None  # a jump of several floors at once is a misread (5 read as 57 once)
         if bar.floor is not None:
-            if bar.floor < self.floor and bar.floor <= 2:  # runs start at floor 1; a smaller misread is not a new run
+            # A new run starts at floor 1 or 2 with a starter-sized deck; anything else is a misread
+            # (an upgrade screen once read the floor as 0 on floor 26).
+            starter_sized = bar.deck_count is None or bar.deck_count <= 14
+            new_run = bar.floor < self.floor and 1 <= bar.floor <= 2 and starter_sized
+            if bar.floor < self.floor and not new_run:
+                bar.floor = None  # floors only go up within a run: a drop that is not a new run is a misread
+        if bar.floor is not None:
+            if bar.floor < self.floor:
                 self.deck = Deck.starter(self.character, self.ascension)
                 self.drawn_images, self.drawn_floors = [], []
                 self.build, self.build_floor = "flexible", None
