@@ -676,6 +676,9 @@ class Bot:
         time.sleep(0.8)
         self.move(*REST)
         names = [c.name for c in cards]
+        if not cards:
+            self.say("  deck view: no cards read (it may not have opened); will try once more")
+            return None
         self.log(kind="deck_sync", read=names, screen_count=screen_count, tracked=len(self.state.deck.cards))
         if len(cards) != screen_count:
             self.say(f"  deck view read {len(cards)} cards, not {screen_count}; tracked deck left as it was")
@@ -983,8 +986,11 @@ class Bot:
             return False
         if (kind == "map" and self.play and bar.deck_count is not None
                 and bar.deck_count != len(self.state.deck.cards) and self.synced_floor != self.state.floor):
-            self.sync_deck(bar.deck_count)  # a pause mid-sync raises before the floor is marked: it retries
-            self.synced_floor = self.state.floor  # once per floor after a finished read, so a misread cannot loop
+            ok = self.sync_deck(bar.deck_count)  # a pause mid-sync raises before the floor is marked: it retries
+            self.sync_tries = getattr(self, "sync_tries", 0) + 1
+            if ok is not None or self.sync_tries >= 2:  # nothing read (the view did not open): one more try
+                self.synced_floor = self.state.floor  # then once per floor, so a misread cannot loop
+                self.sync_tries = 0
             return False
         if kind == "map":
             sig = f"map|{self.state.floor}|{self.state.hp}"
