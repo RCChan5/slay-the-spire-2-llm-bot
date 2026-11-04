@@ -34,6 +34,8 @@ if not fm.rows:
 nodes = [pp.Node(r.kind, next(k for k, row in enumerate(fm.rows) if i in row), r.x, list(r.up))
          for i, r in enumerate(fm.rooms)]
 visited = [i for i, r in enumerate(fm.rooms) if r.visited]
+st.fights_done = sum(1 for i in visited if fm.rooms[i].kind == "enemy")  # rooms already entered this act
+st.elites_done = sum(1 for i in visited if fm.rooms[i].kind == "elite")
 starts = list(fm.rooms[min(visited, key=lambda i: fm.rooms[i].y)].up) if visited else list(fm.rows[0])
 routes = pp.top_routes(nodes, starts, st)
 print(f"{len(pp.routes_from(nodes, starts))} routes; best 5 by the guide's rules:")
