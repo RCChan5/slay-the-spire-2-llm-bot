@@ -35,6 +35,8 @@ from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from . import context as cx
 from . import llm
 from .review import review_last_run
+from . import mapfull, pathplan as pp
+from .route import deck_power
 from .brain import FightChoice, decide_fight, decide_pick, next_queued
 from .builds import deck_builds
 from .handpick import discard_pick, read_prompt, upgrade_pick
@@ -86,8 +88,12 @@ class Stuck(Exception):
 
 class Bot:
     def __init__(self, play: bool, max_turns: int | None = None, resume: bool = True, still_secs: float = 5.0,
-                 max_runs: int | None = None, draw: bool = True, use_llm: bool = True):
+                 max_runs: int | None = None, draw: bool = True, use_llm: bool = True, stop_at_map: bool = False):
         self.play = play
+        self.stop_at_map = stop_at_map
+        self.use_route = True  # plan the act's route from the whole map (map_pathing_guide.md)
+        self.route_failures = 0
+        self.force_replan = False
         self.use_llm = use_llm and cx.available()
         self.draw = draw
         self.max_runs = max_runs
@@ -669,6 +675,10 @@ class Bot:
                 return True
         if s.floor == 0 or not s.hp:
             return False
+        if self.play and self.use_route:
+            acted = self.route_step(m)
+            if acted is not None:
+                return acted
         info = RunInfo(s.hp, s.max_hp, s.gold, s.floor, s.ascension)
         ch = choose_room(m, info, s.deck)
         reach = [f"{m.rooms[i].kind}" for i, r in enumerate(m.rooms) if r.reachable]
@@ -700,6 +710,128 @@ class Bot:
         inputs.click(self.win, r.x, r.y)
         self.remember_pointer()
         self.move(*REST)
+        self.map_tries += 1
+        time.sleep(1.5)
+        return True
+
+    # ---------- the act's route (context/map_pathing_guide.md)
+    def route_step(self, m) -> bool | None:
+        """Plan the act's route from the whole map (fresh act, or a fork where things changed), draw it in
+        red, and walk it. None when the route has nothing to say (finished: the boss is next)."""
+        s = self.state
+        fresh = m.current is None and (not s.route or s.route_pos > 0)
+        if fresh and s.route:
+            s.act += 1  # a fresh map after a finished route: the next act
+        if fresh and s.floor <= 2:
+            s.act = 1
+        here = s.route[s.route_pos - 1] if 0 < s.route_pos <= len(s.route) else None
+        st = pp.State(s.act, s.hp, s.max_hp, s.gold, self.deck_strong(),
+                      sum(1 for r in s.route[:s.route_pos] if r["kind"] == "enemy"),
+                      sum(1 for r in s.route[:s.route_pos] if r["kind"] == "elite"))
+        last = pp.State(s.act, s.route_hp, s.max_hp, s.route_gold, st.strong) if s.route else None
+        why = ("a fresh act map" if fresh else "the plan did not match the map" if self.force_replan
+               else "no plan for this act yet" if not s.route else None)
+        self.force_replan = False
+        if not why and here is not None and s.route_pos < len(s.route):
+            why = pp.should_replan(st, last, here["kind"])
+        fm = None
+        if why:
+            fm = self.plan_route(st, here, why)
+            if fm is None:
+                return None
+        if s.route_pos >= len(s.route):
+            return None  # the route is done: the boss (handled by the normal map step)
+        return self.walk_route(fm)
+
+    def deck_strong(self) -> bool:
+        p = deck_power(self.state.deck, self.state.floor)
+        return p.quality >= 0.8 or (p.aoe and p.scaling >= 1 and p.quality >= 0.4)
+
+    def read_whole_map(self):
+        self.say("  reading the whole map (scrolling)")
+        frames, offs = mapfull.capture(self.win, inputs, grab)
+        self.remember_pointer()
+        fm = mapfull.build(frames, offs)
+        self.say(f"  whole map: {len(fm.rooms)} rooms in {len(fm.rows)} rows")
+        return fm
+
+    def plan_route(self, st, here, why):
+        s = self.state
+        self.say(f"route: planning ({why}); act {st.act}, HP {st.hp}/{st.max_hp}, gold {st.gold}, "
+                 f"deck {'strong' if st.strong else 'weak'}")
+        fm = self.read_whole_map()
+        if not fm.rows:
+            self.say("  no rooms read; using the step-by-step route")
+            return None
+        visited = [i for i, r in enumerate(fm.rooms) if r.visited]
+        if here is None and visited:  # mid-act with no plan (a restart): start above the room we stand on
+            top = min(visited, key=lambda i: fm.rooms[i].y)
+            here = {"kind": fm.rooms[top].kind, "x": fm.rooms[top].x, "y": fm.rooms[top].y}
+            s.route, s.route_pos = [here], 1
+        if here is None:
+            starts = list(fm.rows[0])
+        else:
+            cur = min(range(len(fm.rooms)), key=lambda i: abs(fm.rooms[i].x - here["x"]) + abs(fm.rooms[i].y - here["y"]))
+            starts = list(fm.rooms[cur].up)
+        nodes = [pp.Node(r.kind, next(k for k, row in enumerate(fm.rows) if i in row), r.x, list(r.up))
+                 for i, r in enumerate(fm.rooms)]
+        routes = pp.top_routes(nodes, starts, st)
+        if not routes:
+            self.say("  no route found on the map; using the step-by-step route")
+            return None
+        for k, r in enumerate(routes, 1):
+            self.say(f"  {k}. [{r.score}] {r.summary()}".replace("\n", " "))
+        if self.use_llm:
+            pick = pp.pick_route(routes, st, deck_builds(s.deck.cards).describe())
+        else:
+            pick = pp.RoutePick(routes[0], "highest score by the guide's rules", "rules")
+        r = pick.route
+        self.say(f"  {pick.source}: route {routes.index(r) + 1} ({pick.reason}) [{llm.last['seconds']:.1f}s]")
+        self.log(kind="route", act=st.act, why=why, routes=[x.summary() for x in routes], pick=routes.index(r) + 1,
+                 reason=pick.reason, source=pick.source)
+        planned = [{"kind": fm.rooms[i].kind, "x": fm.rooms[i].x, "y": fm.rooms[i].y} for i in r.nodes]
+        done = s.route[:s.route_pos] if here is not None else []
+        s.route, s.route_pos = done + planned, len(done)
+        s.route_hp, s.route_gold = s.hp, s.gold
+        s.save()
+        n = mapfull.draw_route(self.win, inputs, fm, r.nodes,
+                               start=(here["x"], here["y"]) if here else None,
+                               guard=self.guard, after_stroke=self.remember_pointer)
+        self.remember_pointer()
+        self.say(f"  drew the route in red ({n} segments)")
+        return fm
+
+    def walk_route(self, fm=None) -> bool:
+        """Click the next planned room: scroll so it is on screen, check it is reachable there, click."""
+        s = self.state
+        nxt = s.route[s.route_pos]
+        steps = 0
+        while nxt["y"] + steps * mapfull.STEP < 0.25 and steps < mapfull.MAX_STEPS:
+            steps += 1
+        mapfull.scroll_to(self.win, inputs, steps, moved=self.remember_pointer)
+        sy = nxt["y"] + steps * mapfull.STEP
+        img = self.frame()
+        here = read_map(img)
+        near = [r for r in here.rooms if abs(r.x - nxt["x"]) < 0.025 and abs(r.y - sy) < 0.04]
+        if not near or not near[0].reachable:
+            self.say(f"  the planned {nxt['kind']} is not reachable on screen; planning again")
+            self.force_replan = True
+            self.route_failures += 1
+            if self.route_failures >= 2:
+                self.say("  the route does not match the map twice; using the step-by-step route this act")
+                s.route_pos = len(s.route)
+            s.save()
+            return False
+        self.route_failures = 0
+        r = near[0]
+        self.say(f"route: next {nxt['kind']} (room {s.route_pos + 1} of {len(s.route)})")
+        self.last_room = r.kind
+        self.guard()
+        inputs.click(self.win, r.x, r.y)
+        self.remember_pointer()
+        self.move(*REST)
+        s.route_pos += 1
+        s.save()
         self.map_tries += 1
         time.sleep(1.5)
         return True
@@ -1248,6 +1380,9 @@ class Bot:
                 self.synced_floor = self.state.floor  # then once per floor, so a misread cannot loop
                 self.sync_tries = 0
             return False
+        if kind == "map" and self.stop_at_map:
+            self.say("map reached; stopping as asked (--stop-at-map)")
+            return True
         if kind == "map":
             sig = f"map|{self.state.floor}|{self.state.hp}"
             if self.play or sig != self.last_summary:
@@ -1310,9 +1445,10 @@ def main(argv=None):
     ap.add_argument("--runs", type=int, default=None, help="start at most this many new runs (default: keep going)")
     ap.add_argument("--no-draw", action="store_true", help="do not draw a picture from images/ on each act's map")
     ap.add_argument("--no-llm", action="store_true", help="use the built-in rules instead of the local LLM")
+    ap.add_argument("--stop-at-map", action="store_true", help="stop when the map is on screen (for calibration)")
     args = ap.parse_args(argv)
     lock = single_instance()
     if lock is None:
         sys.exit("Another stsbot is already running. Stop it first: python -m tools.stop")
     Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still,
-        max_runs=args.runs, draw=not args.no_draw, use_llm=not args.no_llm).run()
+        max_runs=args.runs, draw=not args.no_draw, use_llm=not args.no_llm, stop_at_map=args.stop_at_map).run()

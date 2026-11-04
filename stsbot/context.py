@@ -129,6 +129,21 @@ def guide_section(title_start: str) -> str:
     return ""
 
 
+@lru_cache(maxsize=1)
+def _map_guide() -> str:
+    p = CONTEXT / "map_pathing_guide.md"
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+
+
+def map_guide_section(number: str) -> str:
+    """A '## N. ...' section of the map pathing guide (number like "4.")."""
+    for p in re.split(r"(?m)^## ", _map_guide()):
+        if p.startswith(number + " ") or p.startswith(number):
+            if p.split(" ", 1)[0] == number:
+                return "## " + p.strip()
+    return ""
+
+
 BUILD_SECTIONS = {
     "Exhaust / infinite": "Build 1",
     "Self-damage": "Build 2",

@@ -65,6 +65,11 @@ class Run:
     drawn_images: list = field(default_factory=list)  # pictures drawn this run (no repeats until all used)
     drawn_floors: list = field(default_factory=list)  # floors whose fresh map got a picture
     reviewed: bool = False  # the LLM wrote this run's lessons (after it ended)
+    act: int = 1
+    route: list = field(default_factory=list)  # the planned rooms this act: [{"kind", "x", "y"}] in map coordinates
+    route_pos: int = 0  # how many planned rooms have been entered
+    route_hp: int = 0  # HP and gold when the route was planned (re-plan triggers)
+    route_gold: int = 0
 
     def save(self):
         RUN_FILE.parent.mkdir(exist_ok=True)
@@ -72,7 +77,9 @@ class Run:
                                         "drawn_images": self.drawn_images, "drawn_floors": self.drawn_floors,
                                         "hp": self.hp, "max_hp": self.max_hp, "gold": self.gold,
                                         "build": self.build, "build_floor": self.build_floor,
-                                        "reviewed": self.reviewed,
+                                        "reviewed": self.reviewed, "act": self.act, "route": self.route,
+                                        "route_pos": self.route_pos, "route_hp": self.route_hp,
+                                        "route_gold": self.route_gold,
                                         "deck": self.deck.to_json()}, indent=1), encoding="utf-8")
 
     @classmethod
@@ -85,6 +92,8 @@ class Run:
             r.hp, r.max_hp, r.gold = d.get("hp", 0), d.get("max_hp", 0), d.get("gold", 0)
             r.build, r.build_floor = d.get("build", "flexible"), d.get("build_floor")
             r.reviewed = d.get("reviewed", False)
+            r.act, r.route, r.route_pos = d.get("act", 1), d.get("route", []), d.get("route_pos", 0)
+            r.route_hp, r.route_gold = d.get("route_hp", 0), d.get("route_gold", 0)
             return r
         except (OSError, ValueError, KeyError):
             return cls()
@@ -117,6 +126,7 @@ class Run:
                 self.drawn_images, self.drawn_floors = [], []
                 self.build, self.build_floor = "flexible", None
                 self.reviewed = False
+                self.act, self.route, self.route_pos = 1, [], 0
                 note = f"new run (floor {bar.floor} after {self.floor}); deck reset to the starter deck"
             if bar.floor != self.floor:
                 self.floor = bar.floor
@@ -132,6 +142,7 @@ class Run:
         self.drawn_images, self.drawn_floors = [], []
         self.build, self.build_floor = "flexible", None
         self.reviewed = False
+        self.act, self.route, self.route_pos = 1, [], 0
         self.save()
 
     def add(self, name: str, kind: str, text: str, cost: int | None):

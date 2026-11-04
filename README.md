@@ -175,6 +175,17 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     on the game-over screen does not review again). `python -m stsbot.review` reviews the last run by hand;
     `--story` only prints the story. The dashboard shows the rules and the latest review. Both files are
     written by the bot and kept out of git; edit or delete them freely.
+23. **Act route planning** (`stsbot/mapfull.py`, `stsbot/pathplan.py`, `context/map_pathing_guide.md`): on a
+    fresh act map the bot scrolls through the whole map (about 3 screens; 3 wheel notches move it 0.222 of
+    the window, checked on every step) and joins the screens into one graph of rooms and paths. Every route
+    from the start to the boss is listed with the guide's facts (elites, a campfire before the first elite,
+    easy and hard hallway fights, events, shops by timing and gold, treasure, pivots, hard stretches with no
+    campfire) and scored by the guide's decision rules; the local LLM picks from the best 5 with the guide's
+    sections for that act. The route is drawn in red with the map pen (right-drag; the pen is red in single
+    player; the broom clears old drawings first, pictures included) and walked room by room. It is planned
+    again at a fork after an elite, when HP falls below half, when gold crosses the shop plan, or when the
+    next planned room is not reachable. `python -m tools.routetest` tries it on the open map without playing
+    (`--no-llm`, `--no-draw`). Reading the map takes about 15 to 25 seconds, the LLM pick about 1 to 4.
 
 ## Run
 
@@ -209,6 +220,7 @@ C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
 C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
 C:\SAS\.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
 C:\SAS\.venv\Scripts\python -m tests.test_handpick  # choosing cards from the hand
+C:\SAS\.venv\Scripts\python -m tests.test_pathplan  # act route planning on a made-up map
 C:\SAS\.venv\Scripts\python -m tests.test_review    # run review (stand-in model); --live for the real one
 C:\SAS\.venv\Scripts\python -m tests.test_speed     # hover wait, unnamed icons
 C:\SAS\.venv\Scripts\python -m tests.test_brain     # the LLM layer (stand-in model); add --live for the real one
