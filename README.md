@@ -90,6 +90,12 @@ mouse input. Nothing is read from, injected into, or changed in the game's files
     way: upgrades, removals, relics, free items, gold, max HP, healing and card choices count for an option;
     curses and losing HP, max HP or gold count against it. One-button follow-up screens are clicked through.
 
+13. **Campfires** (`stsbot/campfire.py`): rest when HP is under 55% of max, otherwise Smith. The upgrade
+    screen shows the whole deck; the bot scrolls through it (and adds cards it had not tracked), then
+    upgrades Bash first early, then key cards of the committed build, then the best non-basic card (block
+    cards a little higher), Defend before Strike, never a card already upgraded, and confirms with the
+    check mark.
+
 ## Run
 
 For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
@@ -103,7 +109,7 @@ C:\SAS\.venv\Scripts\python -m stsbot --play --turns 3 # stops after 3 turns
 
 Moving the mouse or switching away from the game **pauses** play mode; it resumes once the game is in front
 and the mouse has been still for 5 seconds (`--still 8` to change, `--no-resume` to stop for good instead).
-Ctrl+C quits.
+Ctrl+C quits. Only one bot can run at a time; `python -m tools.stop` stops any that are running.
 Daivid's gaming mode pauses Daivid while the game is in front; that is expected.
 
 Every decision is logged to `logs/YYYYMMDD.jsonl` (state, plan, score, card texts read).

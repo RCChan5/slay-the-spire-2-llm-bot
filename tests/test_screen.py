@@ -26,6 +26,8 @@ CASES = {
     "cards1.png": dict(kind="card_choice"),
     "reward1.png": dict(kind="loot"),
     "gameover1.png": dict(kind="game_over"),
+    "camp1.png": dict(kind="campfire"),
+    "smith1.png": dict(kind="upgrade_select"),
 }
 
 ocr = Ocr()
@@ -77,6 +79,24 @@ for shot, want in {"menuX.png": "Nab the Map", "ev1b.png": "Share Knowledge"}.it
     opts = read_options(ocr.read(img), W, H, (0.47, 0.92, 0.53, 0.95))
     i, _ = best_option(opts, 56, 80)
     check(shot, "event pick", opts[i].title if i is not None else None, want)
+
+# Campfire: the options and the upgrade grid.
+from stsbot.campfire import best_upgrade, campfire_options, read_grid  # noqa: E402
+from stsbot.draft import Deck  # noqa: E402
+
+p = SHOTS / "camp1.png"
+if p.exists():
+    img = cv2.imread(str(p))
+    H, W = img.shape[:2]
+    check("camp1.png", "options", sorted(campfire_options(ocr.read(img), W, H)), ["rest", "smith"])
+p = SHOTS / "smith1.png"
+if p.exists():
+    img = cv2.imread(str(p))
+    H, W = img.shape[:2]
+    grid = read_grid(ocr.read(img), W, H)
+    check("smith1.png", "grid names", [c.name for c in grid], ["Strike"] * 5 + ["Defend"] * 4 + ["Bash"])
+    i, _ = best_upgrade(grid, Deck.starter(), 7)
+    check("smith1.png", "upgrade pick", grid[i].name, "Bash")
 
 print(f"test_screen: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

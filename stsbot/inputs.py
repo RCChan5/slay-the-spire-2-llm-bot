@@ -17,6 +17,7 @@ INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
 MOUSEEVENTF_MOVE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP = 0x0001, 0x0002, 0x0004
 MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP = 0x0008, 0x0010
 MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_VIRTUALDESK = 0x8000, 0x4000
+MOUSEEVENTF_WHEEL = 0x0800
 KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE = 0x0002, 0x0008
 SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 76, 77, 78, 79
 
@@ -96,6 +97,15 @@ def drag(win: GameWindow, f0: tuple[float, float], f1: tuple[float, float]) -> N
     move(win, *f1, steps=16, duration=0.25)
     time.sleep(0.08)
     _send(_mouse(MOUSEEVENTF_LEFTUP))
+
+
+def wheel(win: GameWindow, notches: int) -> None:
+    """Scroll: negative notches scroll down."""
+    _check(win)
+    for _ in range(abs(notches)):
+        _send(INPUT(INPUT_MOUSE, _U(mi=MOUSEINPUT(0, 0, 120 if notches > 0 else (-120 & 0xFFFFFFFF), MOUSEEVENTF_WHEEL,
+                                                  0, None))))
+        time.sleep(0.05)
 
 
 VK = {"enter": 0x0D, "esc": 0x1B, "space": 0x20, "e": 0x45, **{str(i): 0x30 + i for i in range(10)}}

@@ -31,6 +31,7 @@ from .mapread import read_map
 from .planner import describe, plan_turn
 from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from .builds import deck_builds
+from .campfire import CONFIRM, best_upgrade, campfire_options, read_grid, should_rest
 from .events import best_option, read_options
 from .ocr import Line
 from .route import RunInfo, choose_room
@@ -230,7 +231,7 @@ class Bot:
             if who.status_slots:
                 continue
             for t, fx, fy in self.crop_read(img, max(0, x - 0.1), min(1, x + 0.1), 0.71, 0.77, 3.0):
-                if DIGITS.match(t):
+                if DIGITS.match(t) and int(t) < 100:  # stacks are small; a big number is a misread
                     who.status_slots.append((fx, fy, int(t)))
         hovered = False
         for x, who in owners:
@@ -591,6 +592,82 @@ class Bot:
         time.sleep(1.5)
         return True
 
+    # ---------- campfire
+    def campfire_step(self, lines, W, H) -> bool:
+        opts = campfire_options(lines, W, H)
+        s = self.state
+        rest = should_rest(s.hp, s.max_hp) or "smith" not in opts
+        pick = "rest" if rest and "rest" in opts else ("smith" if "smith" in opts else next(iter(opts), None))
+        self.say(f"campfire: options {sorted(opts)}; HP {s.hp}/{s.max_hp} -> {pick}"
+                 + (" (under 55%: heal)" if pick == "rest" else " (upgrade: HP is fine)"))
+        self.log(kind="campfire", options=sorted(opts), pick=pick, hp=s.hp, max_hp=s.max_hp, play=self.play)
+        if not self.play or pick is None:
+            return False
+        self.guard()
+        inputs.click(self.win, *opts[pick])
+        self.remember_pointer()
+        self.move(*REST)
+        time.sleep(1.5)
+        return True
+
+    def upgrade_step(self, img, lines, W, H) -> bool:
+        """The deck grid: look at every page (scrolling), pick the best card, confirm with the check mark."""
+        pages = []
+        for page in range(4):
+            if page:
+                self.guard()
+                inputs.move(self.win, 0.5, 0.6)
+                inputs.wheel(self.win, -5)
+                self.remember_pointer()
+                time.sleep(0.7)
+                img = self.frame()
+                lines, W, H = self.read(img)
+            cards = read_grid(lines, W, H)
+            sig = [(c.name, round(c.y, 2)) for c in cards]
+            if pages and sig == pages[-1][1]:
+                break  # did not move: the end of the grid
+            pages.append((cards, sig))
+        known = {c.name for c in self.state.deck.cards}
+        seen = {c.name: c for cards, _ in pages for c in cards}
+        for name, c in seen.items():
+            if name not in known and name.rstrip("+") not in known:
+                self.state.add(name, c.kind, c.text, None)  # a card the bot had not tracked (event, Neow, you)
+                self.say(f"  deck: added {name}, seen on the grid but not tracked")
+        best = None
+        for p_i, (cards, _) in enumerate(pages):
+            i, scores = best_upgrade(cards, self.state.deck, self.state.floor)
+            if i is not None and (best is None or scores[i][0] > best[0]):
+                best = (scores[i][0], scores[i][1], p_i, cards[i])
+        if best is None:
+            self.say("  upgrade: nothing to upgrade")
+            return False
+        score, why, p_i, card = best
+        self.say(f"  upgrade: {card.name} ({score:.1f}: {why})")
+        self.log(kind="upgrade", card=card.name, score=round(score, 2), why=why, play=self.play)
+        if not self.play:
+            return False
+        if p_i != len(pages) - 1:  # scroll back to the page it was on
+            self.guard()
+            inputs.move(self.win, 0.5, 0.6)
+            inputs.wheel(self.win, 5 * (len(pages) - 1 - p_i))
+            self.remember_pointer()
+            time.sleep(0.7)
+        self.guard()
+        inputs.click(self.win, card.x, card.y)
+        self.remember_pointer()
+        time.sleep(1.0)
+        self.guard()
+        inputs.click(self.win, *CONFIRM)
+        self.remember_pointer()
+        self.move(*REST)
+        for c in self.state.deck.cards:
+            if c.name == card.name:
+                c.name = card.name + "+"
+                break
+        self.state.save()
+        time.sleep(1.5)
+        return True
+
     # ---------- main loop
     def run(self):
         self.win = find_game()
@@ -650,6 +727,15 @@ class Bot:
             if acted is False:
                 return True
             self.idle_since = time.time()
+            return False
+        if kind in ("campfire", "upgrade_select"):
+            sig = kind + "|" + str(self.state.floor)
+            if self.play or sig != self.last_summary:
+                self.last_summary = sig
+                step = self.campfire_step(lines, W, H) if kind == "campfire" else self.upgrade_step(img, lines, W, H)
+                if step:
+                    self.idle_since = time.time()
+            time.sleep(0.5)
             return False
         if kind == "neow":
             sig = "neow|" + str(self.state.floor)
@@ -721,6 +807,16 @@ class Bot:
         return False
 
 
+def single_instance() -> object | None:
+    """A Windows named lock so only one bot plays at a time (three once ran together with old rules)."""
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    handle = k32.CreateMutexW(None, False, r"Local\stsbot-single-instance")
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+        return None
+    return handle
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="stsbot", description="Slay the Spire 2 bot (screen pixels + OCR)")
     ap.add_argument("--play", action="store_true", help="play combat and rewards (default: advise only)")
@@ -730,5 +826,8 @@ def main(argv=None):
     ap.add_argument("--still", type=float, default=5.0, help="seconds of a still mouse before resuming")
     ap.add_argument("--runs", type=int, default=None, help="start at most this many new runs (default: keep going)")
     args = ap.parse_args(argv)
+    lock = single_instance()
+    if lock is None:
+        sys.exit("Another stsbot is already running. Stop it first: python -m tools.stop")
     Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still,
         max_runs=args.runs).run()
