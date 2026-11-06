@@ -1,7 +1,58 @@
-# stsbot
+# Slay the Spire 2 LLM bot
 
-A Slay the Spire 2 bot that reads the game from screen pixels with local OCR and plays through Windows
-mouse input. Nothing is read from, injected into, or changed in the game's files or process.
+A bot that plays Slay the Spire 2 the way a person does: it **reads the screen** with local OCR and **plays
+with the mouse**. Nothing is read from, injected into, or changed in the game's files or process. Every
+decision runs on your own PC: a combat simulator, card and route rules, and a **local LLM** (Ollama) that
+reads guides you write and has the final say.
+
+Highlights:
+
+- **Fights:** reads hand, energy, HP, block, enemy intents and statuses; a depth-first simulator ranks play
+  orders (block first, kills when they save more HP); the local LLM plans the whole turn from real card
+  text and the simulator's options, and is asked again only when a card is drawn.
+- **Card picks with a build:** the LLM commits to an Ironclad build (Exhaust, Self-damage, Strength,
+  Barricade) by floor 6 and skips cards that do not serve it.
+- **Act route planning:** at each new act it scrolls the whole map, lists every route with the facts a
+  pathing guide cares about (elites, campfire before the first elite, easy and hard hallway fights, shops,
+  events, pivots), lets the LLM pick from the best five, **draws the route in red** with the map pen and
+  walks it, re-planning at forks when things change.
+- **Learns from every run:** after a death or a win the LLM reviews the run's log and keeps a short list of
+  rules that go into its future prompts.
+- **Everything else a run needs:** rewards, campfires, upgrades and removals, potions (one slot kept free),
+  events, treasure, Neow, new runs, and pausing whenever you touch the mouse.
+- **Dashboard** (local page): run status, settings, the LLM's answers streaming in, what it learned, and a
+  button to draw a picture from a folder on the map.
+
+## Setup
+
+Windows, Python 3.12, an NVIDIA GPU (PaddleOCR GPU), and [Ollama](https://ollama.com) with
+`qwen3-vl:8b-instruct` (any fast JSON-capable model works; set `MODEL` in `stsbot/llm.py`). The game runs in
+a 16:9 window (measured at 2560x1440).
+
+```
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+# then paddlepaddle-gpu for your CUDA version from PaddlePaddle's index
+ollama pull qwen3-vl:8b-instruct
+```
+
+The launchers use `.venv` in this folder (or the `STSBOT_PYTHON` environment variable, else `python`).
+
+### The `context` folder (your own data, not included)
+
+The LLM reads game knowledge and strategy from `context/`, which you supply (game data and guides are not
+published here). Without it the bot still plays with its built-in rules. Files it reads:
+
+| File | Contents |
+|---|---|
+| `sts2_cards.json` | `{"cards": [{"id", "name", "character", "type", "rarity", "cost", "cost_upgraded", "text", "text_upgraded"}]}` |
+| `sts2_card_tiers.json` | `{"by_id": {"<card id>": "S" \| "A" \| ... \| "F"}}` |
+| `sts2_monsters.json` | `{"monsters": [{"name", "type", "hp", "moves": [...], "powers": [...]}]}` |
+| `sts2_relics.json` | `{"relics": [{"name", "text"}]}` |
+| `ironclad_play_guide.md` | Markdown with `## Build types at a glance`, `## Build 1:` to `## Build 4:`, `## Rules for the bot` |
+| `map_pathing_guide.md` | Markdown with numbered sections: `## 1.` core idea, `## 3.` fight types, `## 4.`/`## 7.`/`## 8.` Acts 1 to 3, `## 5.` shops, `## 6.` pivots, `## 11.` decision rules |
+
+The bot writes `what_i_learned.md` and `learned_rules.md` there itself after each run.
 
 ## How it works
 
@@ -193,38 +244,36 @@ Easiest: double-click `Start StsBot.cmd`. It stops any copy already running, sta
 not up) and opens it in the browser, checks Ollama, and runs
 the bot in that window with the dashboard's saved settings (close the window or press Ctrl+C to stop).
 
-For now it uses Daivid's Python environment, which already has PaddleOCR on the GPU:
+From the command line:
 
 ```
-cd C:\stsbot
-C:\SAS\.venv\Scripts\python -m stsbot                  # advise only: prints plays, never touches the game
-C:\SAS\.venv\Scripts\python -m stsbot --play           # plays combat itself
-C:\SAS\.venv\Scripts\python -m stsbot --play --turns 3 # stops after 3 turns
+.venv\Scripts\python -m stsbot                  # advise only: prints plays, never touches the game
+.venv\Scripts\python -m stsbot --play           # plays itself
+.venv\Scripts\python -m stsbot --play --turns 3 # stops after 3 turns
 ```
 
 Moving the mouse or switching away from the game **pauses** play mode; it resumes once the game is in front
 and the mouse has been still for 5 seconds (`--still 8` to change, `--no-resume` to stop for good instead).
 Ctrl+C quits. Only one bot can run at a time; `python -m tools.stop` stops any that are running.
-Daivid's gaming mode pauses Daivid while the game is in front; that is expected.
 
 Every decision is logged to `logs/YYYYMMDD.jsonl` (state, plan, score, card texts read).
 
 ## Tests
 
 ```
-C:\SAS\.venv\Scripts\python -m tests.test_planner   # made-up states, no game needed
-C:\SAS\.venv\Scripts\python -m tests.test_draft     # card reward choices, no game needed
-C:\SAS\.venv\Scripts\python -m tests.test_route     # route choices (made-up maps + saved map shots)
-C:\SAS\.venv\Scripts\python -m tests.test_potions   # potion rules
-C:\SAS\.venv\Scripts\python -m tests.test_builds    # build-aware card picks
-C:\SAS\.venv\Scripts\python -m tests.test_deckview  # deck view page merging
-C:\SAS\.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
-C:\SAS\.venv\Scripts\python -m tests.test_handpick  # choosing cards from the hand
-C:\SAS\.venv\Scripts\python -m tests.test_pathplan  # act route planning on a made-up map
-C:\SAS\.venv\Scripts\python -m tests.test_review    # run review (stand-in model); --live for the real one
-C:\SAS\.venv\Scripts\python -m tests.test_speed     # hover wait, unnamed icons
-C:\SAS\.venv\Scripts\python -m tests.test_brain     # the LLM layer (stand-in model); add --live for the real one
-C:\SAS\.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
+.venv\Scripts\python -m tests.test_planner   # made-up states, no game needed
+.venv\Scripts\python -m tests.test_draft     # card reward choices, no game needed
+.venv\Scripts\python -m tests.test_route     # route choices (made-up maps + saved map shots)
+.venv\Scripts\python -m tests.test_potions   # potion rules
+.venv\Scripts\python -m tests.test_builds    # build-aware card picks
+.venv\Scripts\python -m tests.test_deckview  # deck view page merging
+.venv\Scripts\python -m tests.test_mapdraw   # map drawing helpers
+.venv\Scripts\python -m tests.test_handpick  # choosing cards from the hand
+.venv\Scripts\python -m tests.test_pathplan  # act route planning on a made-up map
+.venv\Scripts\python -m tests.test_review    # run review (stand-in model); --live for the real one
+.venv\Scripts\python -m tests.test_speed     # hover wait, unnamed icons
+.venv\Scripts\python -m tests.test_brain     # the LLM layer (stand-in model); add --live for the real one
+.venv\Scripts\python -m tests.test_screen    # saved screenshots in shots/ (skipped if missing)
 ```
 
 Calibration tools: `python -m tools.snap name` saves a screenshot, `python -m tools.ocrdump shots/x.png`
@@ -232,11 +281,11 @@ prints every OCR line with its position, `python -m tools.poke click 0.5 0.5 nam
 
 ## Status
 
-- Done: combat (single and several enemies, intents, enemy block, statuses), Loot, card choices with
-  skipping, Proceed buttons. Played live: three fights won, Pommel Strike, Fight Me! and Battle Trance
-  picked. A card the game sends back (a missed drop) is retried at other drop points, then left out for
-  the turn, so a turn can never loop.
-- Map routing done (read checked on four saved maps and the live map; the first live click was stopped
-  because the game was not the window in front).
-- Next: shops (the route already plans removals), rest sites (heal or upgrade), events (local Qwen3-VL
-  for choices that need judgment), card upgrade and removal screens, potions.
+Plays full Ironclad runs unattended in single player (multiplayer works too, waiting while teammates act).
+Measured: about 2 to 3 seconds per card once a turn is planned, 6 to 8 seconds for a turn's first card,
+about 1 second per LLM answer on an RTX 5080. Known gaps: enemy powers such as Slippery are not simulated,
+and the 8B model's stated reasons are sometimes wrong even when its move is reasonable.
+
+## License
+
+MIT (see `LICENSE`). Slay the Spire 2 is a game by Mega Crit; this project is not affiliated with it.

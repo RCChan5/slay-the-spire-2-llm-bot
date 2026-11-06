@@ -1,4 +1,4 @@
-"""Local OCR: PaddleOCR (PP-OCRv5) on the GPU. Adapted from Daivid's extract/ocr.py.
+"""Local OCR: PaddleOCR (PP-OCRv5) on the GPU. Adapted from the author's screen assistant.
 
     engine = Ocr()
     for line in engine.read(image):          # BGR image or crop
