@@ -71,5 +71,16 @@ check("gold reaches the shop plan: re-plan", pp.should_replan(pp.State(1, 70, 80
       "gold changed the shop plan")
 check("nothing changed: keep the plan", pp.should_replan(pp.State(1, 66, 80, 120, False), last, "enemy"), None)
 
+import numpy as np
+from stsbot.mapfull import team_mark
+base = np.full((1440, 2560, 3), (110, 140, 160), np.uint8)  # parchment
+img = base.copy()
+img[700:740, 1345:1385] = (40, 40, 220)  # a red vote mark beside the room at (0.5, 0.5)
+check("a new colourful mark beside a room counts", team_mark(base, img, 0.5, 0.5) > 1000, True)
+check("the same mark is not near another room", team_mark(base, img, 0.2, 0.5), 0)
+pulse = base.copy()
+pulse[710:730, 1270:1290] = (30, 30, 30)  # the room icon itself pulsing (dark, inside the ring)
+check("the room's own pulsing icon does not count", team_mark(base, pulse, 0.5, 0.5), 0)
+
 print(f"test_pathplan: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

@@ -13,6 +13,7 @@ import argparse
 import ctypes
 import ctypes.wintypes as wt
 import json
+import random
 import re
 import sys
 import time
@@ -35,6 +36,7 @@ from .potions import choose_potion, filled_slots, from_tooltip, slot_count
 from . import context as cx
 from . import llm
 from .review import review_last_run
+from .mapfull import team_mark
 from . import mapfull, pathplan as pp
 from .route import deck_power
 from .brain import FightChoice, decide_fight, decide_pick, next_queued
@@ -61,6 +63,9 @@ IRONCLAD_PORTRAIT = (0.347, 0.875)
 NEOW_REGION = (0.24, 0.8, 0.68, 0.97)
 EVENT_REGION = (0.47, 0.92, 0.53, 0.95)  # event option boxes, right half
 GAME_OVER_BUTTONS = ("continue", "main menu", "return", "proceed", "done", "ok", "menu")
+MAPPING_MODES = ("plan", "random", "teammates", "off")
+TEAM_WAIT = 15.0  # seconds to wait for a teammate's vote on the map
+TEAM_MIN = 120  # changed colourful pixels around a room that count as a vote mark
 REST = (0.5, 0.3)  # where the pointer waits, away from cards and tooltips
 # Player statuses that change the numbers printed on cards (others, like Flame Barrier, do not).
 TEXT_STATUSES = {"Strength", "Weak", "Frail", "Dexterity", "Vigor", "?"}
@@ -88,10 +93,16 @@ class Stuck(Exception):
 
 class Bot:
     def __init__(self, play: bool, max_turns: int | None = None, resume: bool = True, still_secs: float = 5.0,
-                 max_runs: int | None = None, draw: bool = True, use_llm: bool = True, stop_at_map: bool = False):
+                 max_runs: int | None = None, draw: bool = True, use_llm: bool = True, stop_at_map: bool = False,
+                 mapping: str = "plan", route_line: bool = True):
         self.play = play
         self.stop_at_map = stop_at_map
-        self.use_route = True  # plan the act's route from the whole map (map_pathing_guide.md)
+        # Mapping (dashboard, user's choice 2026-11-13): "plan" (whole map, guide rules, the LLM picks),
+        # "random" (a random route), "teammates" (follow the room teammates vote for in multiplayer),
+        # "off" (the room-by-room choice). route_line: draw the planned route in red.
+        self.mapping = mapping if mapping in MAPPING_MODES else "plan"
+        self.route_line = route_line
+        self.use_route = self.mapping != "off"
         self.route_failures = 0
         self.force_replan = False
         self.use_llm = use_llm and cx.available()
@@ -675,6 +686,10 @@ class Bot:
                 return True
         if s.floor == 0 or not s.hp:
             return False
+        if self.play and self.mapping == "teammates":
+            acted = self.follow_teammates(m)
+            if acted is not None:
+                return acted
         if self.play and self.use_route:
             acted = self.route_step(m)
             if acted is not None:
@@ -732,8 +747,8 @@ class Bot:
         why = ("a fresh act map" if fresh else "the plan did not match the map" if self.force_replan
                else "no plan for this act yet" if not s.route else None)
         self.force_replan = False
-        if not why and here is not None and s.route_pos < len(s.route):
-            why = pp.should_replan(st, last, here["kind"])
+        if not why and here is not None and s.route_pos < len(s.route) and self.mapping != "random":
+            why = pp.should_replan(st, last, here["kind"])  # a random route is kept for the whole act
         fm = None
         if why:
             fm = self.plan_route(st, here, why)
@@ -742,6 +757,44 @@ class Bot:
         if s.route_pos >= len(s.route):
             return None  # the route is done: the boss (handled by the normal map step)
         return self.walk_route(fm)
+
+    def follow_teammates(self, m) -> bool | None:
+        """Multiplayer: click the room a teammate votes for. A vote is spotted as a new colourful mark
+        around a reachable room that was not there when the map opened. Waits up to TEAM_WAIT seconds;
+        None (use the guide plan) if no vote shows. Screens are saved to shots/ to tune the detector."""
+        reach = [r for r in m.rooms if r.reachable]
+        if not reach:
+            return None
+        base = self.frame()
+        t0 = time.time()
+        self.say(f"map: waiting up to {TEAM_WAIT:.0f} s for a teammate's vote ({len(reach)} rooms to choose from)")
+        while time.time() - t0 < TEAM_WAIT:
+            time.sleep(0.5)
+            self.guard()
+            img = self.frame()
+            scores = [team_mark(base, img, r.x, r.y) for r in reach]
+            k = max(range(len(reach)), key=lambda i: scores[i])
+            if scores[k] >= TEAM_MIN:
+                r = reach[k]
+                self.save_shot(img, "teammates_vote")
+                self.say(f"  a teammate voted for the {r.kind} (mark {scores[k]}); following")
+                self.log(kind="map", choice=r.kind, why="teammate's vote", mark=scores[k], play=self.play)
+                self.last_room = r.kind
+                self.guard()
+                inputs.click(self.win, r.x, r.y)
+                self.remember_pointer()
+                self.move(*REST)
+                self.state.route, self.state.route_pos = [], 0  # the guide plan is re-made if it is needed later
+                self.state.save()
+                time.sleep(1.5)
+                return True
+        self.save_shot(self.frame(), "teammates_none")
+        self.say("  no teammate vote seen; planning by the guide instead")
+        return None
+
+    def save_shot(self, img, name):
+        (ROOT / "shots").mkdir(exist_ok=True)
+        cv2.imwrite(str(ROOT / "shots" / time.strftime(f"{name}_%Y%m%d_%H%M%S.png")), img)
 
     def deck_strong(self) -> bool:
         p = deck_power(self.state.deck, self.state.floor)
@@ -775,13 +828,19 @@ class Bot:
             starts = list(fm.rooms[cur].up)
         nodes = [pp.Node(r.kind, next(k for k, row in enumerate(fm.rows) if i in row), r.x, list(r.up))
                  for i, r in enumerate(fm.rooms)]
-        routes = pp.top_routes(nodes, starts, st)
+        if self.mapping == "random":
+            every = pp.routes_from(nodes, starts)
+            routes = [pp.score(pp.facts(nodes, random.choice(every), st), st)] if every else []
+        else:
+            routes = pp.top_routes(nodes, starts, st)
         if not routes:
             self.say("  no route found on the map; using the step-by-step route")
             return None
         for k, r in enumerate(routes, 1):
             self.say(f"  {k}. [{r.score}] {r.summary()}".replace("\n", " "))
-        if self.use_llm:
+        if self.mapping == "random":
+            pick = pp.RoutePick(routes[0], "a random route (Mapping: random)", "random")
+        elif self.use_llm:
             pick = pp.pick_route(routes, st, deck_builds(s.deck.cards).describe())
         else:
             pick = pp.RoutePick(routes[0], "highest score by the guide's rules", "rules")
@@ -794,11 +853,12 @@ class Bot:
         s.route, s.route_pos = done + planned, len(done)
         s.route_hp, s.route_gold = s.hp, s.gold
         s.save()
-        n = mapfull.draw_route(self.win, inputs, fm, r.nodes,
-                               start=(here["x"], here["y"]) if here else None,
-                               guard=self.guard, after_stroke=self.remember_pointer)
-        self.remember_pointer()
-        self.say(f"  drew the route in red ({n} segments)")
+        if self.route_line:
+            n = mapfull.draw_route(self.win, inputs, fm, r.nodes,
+                                   start=(here["x"], here["y"]) if here else None,
+                                   guard=self.guard, after_stroke=self.remember_pointer)
+            self.remember_pointer()
+            self.say(f"  drew the route in red ({n} segments)")
         return fm
 
     def walk_route(self, fm=None) -> bool:
@@ -1446,9 +1506,13 @@ def main(argv=None):
     ap.add_argument("--no-draw", action="store_true", help="do not draw a picture from images/ on each act's map")
     ap.add_argument("--no-llm", action="store_true", help="use the built-in rules instead of the local LLM")
     ap.add_argument("--stop-at-map", action="store_true", help="stop when the map is on screen (for calibration)")
+    ap.add_argument("--mapping", choices=MAPPING_MODES, default="plan",
+                    help="plan (whole map, guide, LLM), random, teammates (multiplayer votes), off (room by room)")
+    ap.add_argument("--no-route-line", action="store_true", help="do not draw the planned route in red")
     args = ap.parse_args(argv)
     lock = single_instance()
     if lock is None:
         sys.exit("Another stsbot is already running. Stop it first: python -m tools.stop")
     Bot(play=args.play, max_turns=args.turns, resume=not args.no_resume, still_secs=args.still,
-        max_runs=args.runs, draw=not args.no_draw, use_llm=not args.no_llm, stop_at_map=args.stop_at_map).run()
+        max_runs=args.runs, draw=not args.no_draw, use_llm=not args.no_llm, stop_at_map=args.stop_at_map,
+        mapping=args.mapping, route_line=not args.no_route_line).run()

@@ -237,6 +237,11 @@ The bot writes `what_i_learned.md` and `learned_rules.md` there itself after eac
     again at a fork after an elite, when HP falls below half, when gold crosses the shop plan, or when the
     next planned room is not reachable. `python -m tools.routetest` tries it on the open map without playing
     (`--no-llm`, `--no-draw`). Reading the map takes about 15 to 25 seconds, the LLM pick about 1 to 4.
+    **Mapping modes** (dashboard section "Mapping", or `--mapping`): `plan` (the above), `random` (one
+    random route from start to boss, kept for the act), `teammates` (multiplayer: follow the room a
+    teammate votes for, spotted as a new colourful mark beside a reachable room; the guide plan if no vote
+    shows within 15 s; screens are saved to `shots/teammates_*.png` to tune the detector), `off` (the old
+    room-by-room choice). "Draw the planned route in red" can be switched off (`--no-route-line`).
 
 ## Run
 

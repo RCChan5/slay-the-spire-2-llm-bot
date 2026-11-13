@@ -62,6 +62,10 @@ def main():
         args.append("--no-draw")
     if not s.get("llm", True):
         args.append("--no-llm")
+    if s.get("mapping") in ("plan", "random", "teammates", "off"):
+        args += ["--mapping", s["mapping"]]
+    if not s.get("route_line", True):
+        args.append("--no-route-line")
     print("starting:", " ".join(args[2:]))
     try:
         sys.exit(subprocess.call(args))

@@ -167,3 +167,22 @@ def draw_route(win, inputs, fm: FullMap, route: list[int], start: tuple[float, f
         drawn += 1
     scroll_to(win, inputs, 0, moved=after_stroke)
     return drawn
+
+
+def team_mark(base: np.ndarray, img: np.ndarray, fx: float, fy: float,
+              r_in: float = 0.018, r_out: float = 0.05) -> int:
+    """Colourful pixels that appeared in a ring around a room since `base` was taken (a teammate's vote
+    marker or a line they drew to it). The room icon itself (inside r_in) pulses, so it is left out;
+    the parchment and faded icons are dull, so only saturated changes count."""
+    H, W = img.shape[:2]
+    cx, cy, ro = int(fx * W), int(fy * H), int(r_out * W)
+    x0, x1, y0, y1 = max(0, cx - ro), min(W, cx + ro), max(0, cy - ro), min(H, cy + ro)
+    a, b = base[y0:y1, x0:x1], img[y0:y1, x0:x1]
+    if a.size == 0:
+        return 0
+    diff = cv2.absdiff(a, b).max(axis=2) > 40
+    sat = cv2.cvtColor(b, cv2.COLOR_BGR2HSV)[..., 1] > 90
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    d = np.hypot(xx - cx, yy - cy)
+    ring = (d > r_in * W) & (d < ro)
+    return int((diff & sat & ring).sum())

@@ -27,7 +27,8 @@ DATA = ROOT / "data"
 LOGS = ROOT / "logs"
 SETTINGS = DATA / "settings.json"
 PORT = 8765
-DEFAULTS = {"draw": True, "still": 5.0, "runs": 1, "llm": True}
+DEFAULTS = {"draw": True, "still": 5.0, "runs": 1, "llm": True, "mapping": "plan", "route_line": True}
+MAPPING_MODES = ("plan", "random", "teammates", "off")
 
 app = FastAPI()
 _lock = threading.Lock()
@@ -53,8 +54,9 @@ def _ps(command: str) -> str:
 
 
 def bot_running() -> bool:
+    # Check if any python process is running with the stsbot --play command
     out = _ps("@(Get-CimInstance Win32_Process -Filter \"Name = 'python.exe'\" | "
-              "Where-Object { $_.CommandLine -like '*-m stsbot --play*' }).Count")
+              "Where-Object { $_.CommandLine -like '*stsbot --play*' }).Count")
     try:
         return int(out.strip() or 0) > 0
     except ValueError:
@@ -80,6 +82,9 @@ def start_bot():
         args.append("--no-draw")
     if not s.get("llm", True):
         args.append("--no-llm")
+    args += ["--mapping", s.get("mapping", "plan") if s.get("mapping") in MAPPING_MODES else "plan"]
+    if not s.get("route_line", True):
+        args.append("--no-route-line")
     log = open(LOGS / time.strftime("dash_%Y%m%d_%H%M%S.txt"), "w", encoding="utf-8")
     subprocess.Popen(args, cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT,
                      env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"},
@@ -143,6 +148,8 @@ class SettingsIn(BaseModel):
     still: float
     runs: int | None = None
     llm: bool = True
+    mapping: str = "plan"
+    route_line: bool = True
 
 
 class DrawIn(BaseModel):
@@ -218,7 +225,8 @@ def api_stop():
 
 @app.post("/api/settings")
 def api_settings(s: SettingsIn):
-    save_settings({"draw": s.draw, "still": max(1.0, s.still), "runs": s.runs, "llm": s.llm})
+    save_settings({"draw": s.draw, "still": max(1.0, s.still), "runs": s.runs, "llm": s.llm,
+                   "mapping": s.mapping if s.mapping in MAPPING_MODES else "plan", "route_line": s.route_line})
     return {"ok": True, "note": "used the next time the bot starts"}
 
 

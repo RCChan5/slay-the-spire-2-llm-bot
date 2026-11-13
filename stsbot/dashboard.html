@@ -97,12 +97,29 @@
     </div>
     <h2 style="margin-top:14px">Settings</h2>
     <div class="row"><label><input type="checkbox" id="llm"> Let the LLM decide fights and card picks</label></div>
-    <div class="row"><label><input type="checkbox" id="draw"> Draw a picture on each act's map</label></div>
+
     <div class="row"><label>Resume after the mouse is still for <input type="number" id="still" min="1" step="1"> s</label></div>
     <div class="row"><label>New runs to start <input type="number" id="runs" min="0" step="1"></label>
       <span class="muted">(0 = keep going)</span></div>
     <div class="row"><button id="save">Save settings</button><span class="muted" id="saved"></span></div>
     <p class="muted">Settings apply the next time the bot starts.</p>
+  </section>
+
+  <section>
+    <h2>Mapping</h2>
+    <p class="muted">How the bot chooses its way through each act's map.</p>
+    <div class="row"><label><input type="radio" name="mapping" value="plan"> Plan with the guide: read the whole map,
+      score every route by map_pathing_guide.md, the LLM picks from the best 5</label></div>
+    <div class="row"><label><input type="radio" name="mapping" value="random"> Random path: one random route
+      from start to boss, kept for the act</label></div>
+    <div class="row"><label><input type="radio" name="mapping" value="teammates"> Follow teammates (multiplayer):
+      go where a teammate votes; the guide plan if no vote shows within 15 s</label></div>
+    <div class="row"><label><input type="radio" name="mapping" value="off"> Off: choose room by room
+      (no whole-map read)</label></div>
+    <div class="row"><label><input type="checkbox" id="route_line"> Draw the planned route in red</label></div>
+    <div class="row"><label><input type="checkbox" id="draw"> Draw a picture on each act's map</label></div>
+    <div class="row"><button id="savemap">Save mapping</button><span class="muted" id="savedmap"></span></div>
+    <p class="muted">Applies the next time the bot starts.</p>
   </section>
 
   <section class="wide">
@@ -166,7 +183,9 @@ async function refresh() {
     document.querySelectorAll(".drawbtn, #random").forEach(b => b.disabled = !!busy);
     $("start").disabled = s.running; $("stop").disabled = !s.running;
     if (!settingsLoaded) {
-      $("draw").checked = !!s.settings.draw; $("llm").checked = s.settings.llm !== false; $("still").value = s.settings.still; $("runs").value = s.settings.runs || 0;
+      $("draw").checked = !!s.settings.draw; $("llm").checked = s.settings.llm !== false;
+      $("route_line").checked = s.settings.route_line !== false;
+      document.querySelectorAll("input[name=mapping]").forEach(r => r.checked = r.value === (s.settings.mapping || "plan")); $("still").value = s.settings.still; $("runs").value = s.settings.runs || 0;
       settingsLoaded = true;
     }
   } catch (e) { $("msg").textContent = "dashboard: " + e.message; }
@@ -191,11 +210,15 @@ async function draw(name) {
 $("start").onclick = async () => { await api("/api/start", {}); setTimeout(refresh, 1500); };
 $("stop").onclick = async () => { await api("/api/stop", {}); refresh(); };
 $("random").onclick = () => draw(null);
-$("save").onclick = async () => {
+async function saveSettings(note) {
   const runs = parseInt($("runs").value || "0", 10);
-  await api("/api/settings", {llm: $("llm").checked, draw: $("draw").checked, still: parseFloat($("still").value || "5"), runs: runs > 0 ? runs : null});
-  $("saved").textContent = "saved"; setTimeout(() => $("saved").textContent = "", 2000);
-};
+  const mode = (document.querySelector("input[name=mapping]:checked") || {}).value || "plan";
+  await api("/api/settings", {llm: $("llm").checked, draw: $("draw").checked, still: parseFloat($("still").value || "5"),
+                              runs: runs > 0 ? runs : null, mapping: mode, route_line: $("route_line").checked});
+  $(note).textContent = "saved"; setTimeout(() => $(note).textContent = "", 2000);
+}
+$("save").onclick = () => saveSettings("saved");
+$("savemap").onclick = () => saveSettings("savedmap");
 
 const esc = t => String(t ?? "").replace(/[&<>"]/g, ch => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[ch]));
 
